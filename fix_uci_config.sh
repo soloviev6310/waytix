@@ -147,23 +147,63 @@ UCI_TEMP_DIR="/tmp/uci_temp_$$"
 mkdir -p "$UCI_TEMP_DIR"
 cp "$TEMP_FILE" "$UCI_TEMP_DIR/waytix"
 
-# Validate the new config
+# Validate the new config using uci show
 log "Validating new configuration in $UCI_TEMP_DIR..."
-VALIDATE_OUTPUT=$(cd "$UCI_TEMP_DIR" && uci -c "$UCI_TEMP_DIR" validate 2>&1)
+
+# First, try to show the config to check for syntax errors
+VALIDATE_OUTPUT=$(cd "$UCI_TEMP_DIR" && uci -c "$UCI_TEMP_DIR" show waytix 2>&1)
 VALIDATE_EXIT_CODE=$?
 
 # Save validation output for debugging
-log "Validation output:"
+log "Validation output (uci show):"
 echo "$VALIDATE_OUTPUT" | while read -r line; do
     log "  $line"
 done
 
-# Show the full config if validation fails
+# If uci show fails, try to get more detailed error
 if [ $VALIDATE_EXIT_CODE -ne 0 ]; then
+    log "uci show failed, trying to get more detailed error..."
+    DEBUG_OUTPUT=$(cd "$UCI_TEMP_DIR" && uci -c "$UCI_TEMP_DIR" show 2>&1)
+    log "Debug output (uci show without parameters):"
+    echo "$DEBUG_OUTPUT" | while read -r line; do
+        log "  $line"
+    done
+    
+    # Show the full config for debugging
     log "Full config for debugging:"
     cat "$TEMP_FILE" | while read -r line; do
         log "  $line"
     done
+    
+    # Try to validate using uci import
+    log "Trying to validate using uci import..."
+    IMPORT_OUTPUT=$(cd "$UCI_TEMP_DIR" && uci -c "$UCI_TEMP_DIR" import < waytix 2>&1)
+    log "Import output:"
+    echo "$IMPORT_OUTPUT" | while read -r line; do
+        log "  $line"
+    done
+    
+    # If we got here, validation failed
+    VALIDATE_EXIT_CODE=1
+else
+    # If uci show succeeded, try to validate the config
+    log "uci show succeeded, checking config structure..."
+    
+    # Check if config has required sections
+    if ! grep -q "^config " "$TEMP_FILE"; then
+        log "Error: No config sections found in the generated file"
+        VALIDATE_EXIT_CODE=1
+    fi
+    
+    # Check for common UCI syntax errors
+    if grep -q "^[^#].*[{}]" "$TEMP_FILE"; then
+        log "Warning: Found curly braces in config, which are not standard UCI syntax"
+    fi
+    
+    # If we got here, validation passed
+    if [ $VALIDATE_EXIT_CODE -eq 0 ]; then
+        log "Config structure appears to be valid"
+    fi
 fi
 
 if [ $VALIDATE_EXIT_CODE -eq 0 ]; then
