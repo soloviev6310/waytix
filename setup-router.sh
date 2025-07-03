@@ -31,16 +31,43 @@ if ! opkg update >> "$LOG_FILE" 2>&1; then
 fi
 
 # Устанавливаем необходимые пакеты
-log "Установка зависимостей..."
-for pkg in curl jq unzip coreutils-base64 openssl-util ip-full iptables-mod-tproxy kmod-ipt-tproxy ip6tables-mod-nat kmod-ipt-nat6 luci-proto-ipv6 luci-theme-bootstrap; do
+log "Обновление списка пакетов..."
+opkg update || error_exit "Не удалось обновить список пакетов"
+
+# Основные зависимости
+log "Установка основных зависимостей..."
+for pkg in lua lua-cjson lua-socket lua-bit32 lua-openssl lua-maxminddb \
+           curl jq unzip coreutils-base64 openssl-util ip-full \
+           iptables-mod-tproxy kmod-ipt-tproxy ip6tables-mod-nat kmod-ipt-nat6; do
     if ! opkg list-installed | grep -q "^$pkg "; then
-        log "Установка $pkg..."
+        log "Установка пакета: $pkg"
         if ! opkg install "$pkg" >> "$LOG_FILE" 2>&1; then
-            log "Ошибка при установке $pkg"
-            error_exit "Не удалось установить пакет $pkg"
+            log "Предупреждение: не удалось установить пакет $pkg"
         fi
     fi
 done
+
+# Устанавливаем зависимости LuCI
+log "Установка зависимостей LuCI..."
+for pkg in luci-base luci-compat luci-lib-ipkg luci-theme-bootstrap luci-proto-ipv6; do
+    if ! opkg list-installed | grep -q "^$pkg "; then
+        log "Установка пакета: $pkg"
+        if ! opkg install "$pkg" >> "$LOG_FILE" 2>&1; then
+            log "ОШИБКА: Не удалось установить критический пакет $pkg"
+            error_exit "Не удалось установить необходимые пакеты LuCI"
+        fi
+    fi
+done
+
+# Проверяем, что Lua установлен
+if ! command -v lua >/dev/null 2>&1; then
+    error_exit "Lua не установлен. Установка не может быть продолжена."
+fi
+
+# Проверяем, что LuCI установлен
+if [ ! -d "/usr/lib/lua/luci" ]; then
+    error_exit "LuCI не установлен. Установка не может быть продолжена."
+fi
 
 # Создаем директорию для временных файлов
 TMP_DIR="/tmp/waytix-setup"
