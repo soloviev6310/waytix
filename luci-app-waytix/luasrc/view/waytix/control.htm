@@ -7,6 +7,20 @@
         <div class="cbi-section-node">
             <div class="table">
                 <div class="tr">
+                    <div class="td left" width="33%"><%:Ссылка на подписку:%></div>
+                    <div class="td left">
+                        <input type="text" id="sub-link" class="cbi-input-text" style="width: 300px" 
+                               value="<%=luci.model.uci.cursor():get('waytix', 'config', 'sub_link') or ''%>" />
+                        <button id="btn-update-servers" class="cbi-button cbi-button-apply"><%:Обновить%></button>
+                        <div id="update-status" class="cbi-value-description" style="display: inline-block; margin-left: 10px"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="cbi-section-node">
+            <div class="table">
+                <div class="tr">
                     <div class="td left" width="33%"><%:Статус:%></div>
                     <div class="td left">
                         <span id="vpn-status"><em><%:Загрузка...%></em></span>
@@ -37,6 +51,76 @@
 <script type="text/javascript">
 //<![CDATA[
     'use strict';
+    
+    // Функция для обновления списка серверов
+    function updateServers() {
+        var btn = document.getElementById('btn-update-servers');
+        var statusEl = document.getElementById('update-status');
+        var subLink = document.getElementById('sub-link').value.trim();
+        
+        if (!subLink) {
+            statusEl.textContent = 'Введите ссылку на подписку';
+            statusEl.style.color = 'red';
+            return;
+        }
+        
+        btn.disabled = true;
+        statusEl.textContent = 'Обновление списка серверов...';
+        statusEl.style.color = 'inherit';
+        
+        // Сохраняем ссылку в конфиг
+        XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/savesub")%>', 
+            'sub_link=' + encodeURIComponent(subLink) + '&token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
+            function(xhr, status) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        // Обновляем список серверов
+                        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/update")%>', null,
+                            function(xhr, status) {
+                                var data = JSON.parse(xhr.responseText);
+                                if (data.success) {
+                                    statusEl.textContent = 'Список серверов обновлен: ' + data.message;
+                                    statusEl.style.color = 'green';
+                                    // Перезагружаем страницу для отображения обновленного списка
+                                    window.location.reload();
+                                } else {
+                                    statusEl.textContent = 'Ошибка обновления списка серверов';
+                                    statusEl.style.color = 'red';
+                                }
+                                btn.disabled = false;
+                            }
+                        );
+                    } else {
+                        statusEl.textContent = 'Ошибка сохранения ссылки: ' + (data.message || 'Неизвестная ошибка');
+                        statusEl.style.color = 'red';
+                        btn.disabled = false;
+                    }
+                } catch (e) {
+                    console.error('Ошибка при обновлении серверов:', e);
+                    statusEl.textContent = 'Ошибка: ' + e.message;
+                    statusEl.style.color = 'red';
+                    btn.disabled = false;
+                }
+            }
+        );
+    }
+    
+    // Обработчик кнопки обновления
+    document.addEventListener('DOMContentLoaded', function() {
+        var btnUpdate = document.getElementById('btn-update-servers');
+        if (btnUpdate) {
+            btnUpdate.addEventListener('click', updateServers);
+        }
+        
+        // Остальные обработчики...
+        var btnToggle = document.getElementById('btn-toggle');
+        if (btnToggle) btnToggle.addEventListener('click', toggleConnection);
+        
+        // Обновляем статус каждые 5 секунд
+        updateStatus();
+        setInterval(updateStatus, 5000);
+    });
     
     var isConnected = false;
     var currentServer = '';
