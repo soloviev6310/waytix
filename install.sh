@@ -3,19 +3,256 @@
 set -e  # Exit on any error
 set -x  # Debug output
 
-# Get the directory where the script is located
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-cd "$SCRIPT_DIR" || exit 1
+# Configuration
+REPO_URL="https://raw.githubusercontent.com/soloviev6310/waytix/main"
+TEMP_DIR="/tmp/waytix_install"
+INSTALL_DIR="/usr/lib/lua/luci"
 
-echo "Current directory: $(pwd)"
-echo "Script directory: $SCRIPT_DIR"
+# Create temporary directory
+mkdir -p "$TEMP_DIR"
+cd "$TEMP_DIR" || exit 1
 
-# Check if we're in the right directory
-if [ ! -d "luci-app-waytix" ]; then
-    echo "Error: luci-app-waytix directory not found in $(pwd)"
-    echo "Please run this script from the repository root directory"
+echo "Starting installation in $TEMP_DIR"
+
+# Function to download file from repository
+download_file() {
+    local src="$1"
+    local dst="${2:-$(basename "$src")}"
+    local dir
+    dir=$(dirname "$dst")
+    
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
+    fi
+    
+    echo "Downloading $REPO_URL/$src to $dst"
+    if ! wget -q "$REPO_URL/$src" -O "$dst"; then
+        echo "Failed to download $src"
+        return 1
+    fi
+    return 0
+}
+
+# Function to download directory from repository
+download_dir() {
+    local dir="$1"
+    local base_url="$REPO_URL/$dir"
+    
+    echo "Downloading directory $dir"
+    
+    # Download directory structure
+    for file in $(wget -qO- "$base_url" | grep -oP 'href="\K[^"]+' | grep -v '^/'); do
+        if [ "$file" != "../" ] && [ "$file" != "?" ]; then
+            if [[ "$file" == */ ]]; then
+                # It's a subdirectory
+                local subdir="${file%/}"
+                download_dir "$dir$subdir"
+            else
+                # It's a file
+                download_file "$dir$file" "$dir$file"
+            fi
+        fi
+    done
+}
+
+# Create directory structure
+mkdir -p "luci-app-waytix/luasrc/controller"
+mkdir -p "luci-app-waytix/luasrc/model/cbi/waytix"
+mkdir -p "luci-app-waytix/luasrc/view/waytix"
+mkdir -p "luci-app-waytix/root/etc/waytix"
+mkdir -p "luci-app-waytix/root/etc/init.d"
+mkdir -p "luci-app-waytix/root/usr/sbin"
+mkdir -p "luci-app-waytix/root/usr/share/rpcd/acl.d"
+mkdir -p "luci-app-waytix/root/usr/libexec/rpcd"
+mkdir -p "luci-app-waytix/root/etc/crontabs"
+mkdir -p "luci-app-waytix/root/etc/xray"
+mkdir -p "luci-app-waytix/root/etc/config"
+
+# Download controller files
+echo "Downloading controller files..."
+download_file "luci-app-waytix/luasrc/controller/waytix.lua" "luci-app-waytix/luasrc/controller/waytix.lua"
+
+# Download model files
+echo "Downloading model files..."
+download_file "luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua"
+
+# Download view files
+echo "Downloading view files..."
+download_file "luci-app-waytix/luasrc/view/waytix/control.htm" "luci-app-waytix/luasrc/view/waytix/control.htm"
+download_file "luci-app-waytix/luasrc/view/waytix/status.htm" "luci-app-waytix/luasrc/view/waytix/status.htm"
+
+# Download system files
+echo "Downloading system files..."
+download_file "luci-app-waytix/root/etc/waytix/connect.sh" "luci-app-waytix/root/etc/waytix/connect.sh"
+download_file "luci-app-waytix/root/etc/waytix/status.sh" "luci-app-waytix/root/etc/waytix/status.sh"
+download_file "luci-app-waytix/root/etc/waytix/update.sh" "luci-app-waytix/root/etc/waytix/update.sh"
+
+# Download init script
+download_file "luci-app-waytix/root/etc/init.d/waytix" "luci-app-waytix/root/etc/init.d/waytix"
+
+# Download daemon
+download_file "luci-app-waytix/root/usr/sbin/waytixd" "luci-app-waytix/root/usr/sbin/waytixd"
+
+# Download config files
+download_file "luci-app-waytix/root/etc/config/waytix" "luci-app-waytix/root/etc/config/waytix"
+download_file "luci-app-waytix/root/etc/xray/config.json" "luci-app-waytix/root/etc/xray/config.json"
+
+# Download ACL file
+download_file "luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" "luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json"
+
+# Download RPCD script
+download_file "luci-app-waytix/root/usr/libexec/rpcd/waytix" "luci-app-waytix/root/usr/libexec/rpcd/waytix"
+
+# Download crontab
+download_file "luci-app-waytix/root/etc/crontabs/root" "luci-app-waytix/root/etc/crontabs/root"
+
+# Check if all files were downloaded successfully
+if [ ! -f "luci-app-waytix/luasrc/controller/waytix.lua" ] || \
+   [ ! -f "luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" ] || \
+   [ ! -f "luci-app-waytix/root/etc/init.d/waytix" ] || \
+   [ ! -f "luci-app-waytix/root/usr/sbin/waytixd" ]; then
+    echo "Error: Failed to download required files"
     exit 1
 fi
+
+# Function to fix UCI configuration
+fix_uci_config() {
+    echo "Fixing UCI configuration..."
+    
+    # Backup current config if exists
+    if [ -f "/etc/config/waytix" ]; then
+        cp "/etc/config/waytix" "/etc/config/waytix.bak"
+    fi
+    
+    # Create or fix config
+    uci -q delete waytix.@config[0] 2>/dev/null || true
+    uci -q delete waytix.@servers[0] 2>/dev/null
+    
+    # Add default config
+    if ! uci -q get waytix.@config[0] >/dev/null; then
+        uci add waytix config
+        uci set waytix.@config[0].enabled='0'
+        uci set waytix.@config[0].current_server=''
+        uci commit waytix
+    fi
+    
+    # Add empty servers section if not exists
+    if ! uci -q get waytix.@servers[0] >/dev/null; then
+        uci add waytix servers
+        uci commit waytix
+    fi
+}
+
+# Function to fix pgrep usage
+fix_pgrep_usage() {
+    echo "Fixing pgrep usage in scripts..."
+    
+    # Fix pgrep in init script
+    if [ -f "luci-app-waytix/root/etc/init.d/waytix" ]; then
+        sed -i 's/pgrep -F /pgrep -f "/' "luci-app-waytix/root/etc/init.d/waytix"
+        sed -i 's/\$\([0-9]\+\)\([^0-9]\)/\1"\2/g' "luci-app-waytix/root/etc/init.d/waytix"
+    fi
+    
+    # Fix pgrep in other scripts if needed
+    for script in luci-app-waytix/root/etc/waytix/*.sh; do
+        if [ -f "$script" ]; then
+            sed -i 's/pgrep -F /pgrep -f "/' "$script"
+            sed -i 's/\$\([0-9]\+\)\([^0-9]\)/\1"\2/g' "$script"
+        fi
+    done
+}
+
+# Fix known issues
+fix_uci_config
+fix_pgrep_usage
+
+# Create target directories
+echo "Creating target directories..."
+mkdir -p "${INSTALL_DIR}/controller"
+mkdir -p "${INSTALL_DIR}/model/cbi/waytix"
+mkdir -p "${INSTALL_DIR}/view/waytix"
+mkdir -p "/etc/waytix"
+mkdir -p "/etc/xray"
+mkdir -p "/usr/sbin"
+mkdir -p "/usr/share/rpcd/acl.d"
+mkdir -p "/usr/libexec/rpcd"
+mkdir -p "/etc/crontabs"
+
+# Copy files
+echo "Copying files..."
+
+# Copy controller
+cp -v "luci-app-waytix/luasrc/controller/waytix.lua" "${INSTALL_DIR}/controller/"
+
+# Copy model
+cp -v "luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "${INSTALL_DIR}/model/cbi/waytix/"
+
+# Copy views
+for view in luci-app-waytix/luasrc/view/waytix/*.htm; do
+    cp -v "$view" "${INSTALL_DIR}/view/waytix/"
+done
+
+# Copy system scripts
+for script in luci-app-waytix/root/etc/waytix/*.sh; do
+    cp -v "$script" "/etc/waytix/"
+    chmod +x "/etc/waytix/$(basename "$script")"
+done
+
+# Copy init script
+cp -v "luci-app-waytix/root/etc/init.d/waytix" "/etc/init.d/"
+chmod +x "/etc/init.d/waytix"
+
+# Copy daemon
+cp -v "luci-app-waytix/root/usr/sbin/waytixd" "/usr/sbin/"
+chmod +x "/usr/sbin/waytixd"
+
+# Copy config files
+[ -f "luci-app-waytix/root/etc/config/waytix" ] && cp -v "luci-app-waytix/root/etc/config/waytix" "/etc/config/"
+[ -f "luci-app-waytix/root/etc/xray/config.json" ] && cp -v "luci-app-waytix/root/etc/xray/config.json" "/etc/xray/"
+
+# Copy ACL file
+cp -v "luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" "/usr/share/rpcd/acl.d/"
+
+# Copy RPCD script
+cp -v "luci-app-waytix/root/usr/libexec/rpcd/waytix" "/usr/libexec/rpcd/"
+chmod +x "/usr/libexec/rpcd/waytix"
+
+# Copy crontab
+[ -f "luci-app-waytix/root/etc/crontabs/root" ] && cp -v "luci-app-waytix/root/etc/crontabs/root" "/etc/crontabs/"
+
+# Set permissions
+echo "Setting permissions..."
+chmod 755 "/usr/sbin/waytixd"
+chmod 755 "/etc/init.d/waytix"
+chmod 755 "/usr/libexec/rpcd/waytix"
+chmod 644 "/etc/config/waytix" 2>/dev/null || true
+chmod 644 "/etc/xray/config.json" 2>/dev/null || true
+
+# Enable and start service
+echo "Enabling and starting service..."
+/etc/init.d/waytix enable
+
+# Check if service is already running
+if ! /etc/init.d/waytix running; then
+    /etc/init.d/waytix start
+else
+    /etc/init.d/waytix restart
+fi
+
+# Clean up
+echo "Cleaning up..."
+rm -rf "$TEMP_DIR"
+
+echo ""
+echo "========================================"
+echo "Waytix VPN installation completed!"
+echo "Please refresh your browser to see the changes in LuCI."
+echo ""
+echo "If you encounter any issues, please check the logs:"
+echo "- Logs: /var/log/waytix.log"
+echo "- Service status: /etc/init.d/waytix status"
+echo "========================================"
+echo ""
 
 # Проверяем, что скрипт запущен от root
 if [ "$(id -u)" -ne 0 ]; then
