@@ -1,0 +1,6 @@
+config waytix 'config'
+    option sub_link ''
+    list servers ''
+    option selected_server ''
+
+# Секция для хранения серверов будет добавляться автоматически

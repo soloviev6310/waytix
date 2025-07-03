@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# Логирование
+LOG_TAG="waytix"
+
+# Проверяем наличие xray
+if ! command -v xray >/dev/null 2>&1; then
+    logger -t "$LOG_TAG" "Ошибка: xray не установлен"
+    exit 1
+fi
+
+# Проверяем конфигурацию
+if ! uci get waytix.config.selected_server >/dev/null 2>&1; then
+    logger -t "$LOG_TAG" "Предупреждение: не выбран сервер, сервис не запущен"
+    exit 0
+fi
+
+# Основной цикл демона
+while true; do
+    # Проверяем, запущен ли xray
+    if ! pidof xray >/dev/null; then
+        # Пытаемся переподключиться
+        logger -t "$LOG_TAG" "Переподключение к серверу..."
+        /etc/waytix/connect.sh >/dev/null 2>&1 &
+    fi
+    
+    # Ждем перед следующей проверкой
+    sleep 30
+done

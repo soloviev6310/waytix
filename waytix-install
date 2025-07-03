@@ -1,0 +1,156 @@
+#!/bin/sh
+
+# Проверяем, что скрипт запущен от root
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Этот скрипт должен быть запущен от имени root"
+    exit 1
+fi
+
+# Функция для вывода ошибок
+die() {
+    echo "ОШИБКА: $1"
+    exit 1
+}
+
+# Функция проверки и установки пакета
+install_pkg() {
+    if ! opkg list-installed | grep -q "^$1 "; then
+        echo "Устанавливаем $1..."
+        opkg update || die "Не удалось обновить список пакетов"
+        opkg install $1 || die "Не удалось установить $1"
+    fi
+}
+
+# Проверяем наличие wget
+if ! command -v wget >/dev/null; then
+    opkg update
+    opkg install wget || die "Не удалось установить wget"
+fi
+
+# Создаем временную директорию
+TMP_DIR="/tmp/waytix-install-$(date +%s)"
+mkdir -p "$TMP_DIR"
+
+# Функция загрузки файла
+download_file() {
+    local url="$1"
+    local dest="$2"
+    echo "Загружаем $url..."
+    wget -q --no-check-certificate -O "$dest" "$url" || die "Не удалось загрузить $url"
+}
+
+# Определяем архитектуру
+ARCH=""
+case "$(uname -m)" in
+    "x86_64") ARCH="amd64" ;;
+    "i386" | "i686") ARCH="386" ;;
+    "aarch64" | "armv8" | "arm64") ARCH="arm64" ;;
+    "armv7" | "armv7l") ARCH="arm" ;;
+    "mips") ARCH="mips" ;;
+    "mips64") ARCH="mips64" ;;
+    *) die "Неподдерживаемая архитектура: $(uname -m)" ;;
+esac
+
+# URL для загрузки (замените на ваш сервер)
+BASE_URL="https://your-server.com/waytix"
+
+# Создаем директории
+mkdir -p /etc/waytix
+mkdir -p /usr/lib/lua/luci/controller
+mkdir -p /usr/lib/lua/luci/model/cbi/waytix
+mkdir -p /usr/lib/lua/luci/view/waytix
+mkdir -p /usr/share/rpcd/acl.d
+
+# Устанавливаем необходимые пакеты
+for pkg in luci-lib-ipkg luci-lib-nixio luci-compat luci-mod-admin-full jq; do
+    install_pkg "$pkg"
+done
+
+# Загружаем и устанавливаем Xray
+XRAY_URL="${BASE_URL}/xray-${ARCH}
+echo "Устанавливаем Xray..."
+download_file "$XRAY_URL" "/usr/bin/xray"
+chmod +x /usr/bin/xray
+
+# Создаем конфигурационный каталог Xray
+mkdir -p /etc/xray
+
+# Загружаем основные файлы приложения
+echo "Устанавливаем Waytix VPN..."
+download_file "${BASE_URL}/luci-app-waytix.lua" "/usr/lib/lua/luci/controller/waytix.lua"
+download_file "${BASE_URL}/waytix-cbi.lua" "/usr/lib/lua/luci/model/cbi/waytix/waytix.lua"
+download_file "${BASE_URL}/waytix-view-ctrl.htm" "/usr/lib/lua/luci/view/waytix/control.htm"
+download_file "${BASE_URL}/waytix-view-status.htm" "/usr/lib/lua/luci/view/waytix/status.htm"
+
+# Загружаем системные скрипты
+download_file "${BASE_URL}/connect.sh" "/etc/waytix/connect.sh"
+download_file "${BASE_URL}/update.sh" "/etc/waytix/update.sh"
+download_file "${BASE_URL}/status.sh" "/etc/waytix/status.sh"
+chmod +x /etc/waytix/*.sh
+
+# Устанавливаем демона
+download_file "${BASE_URL}/waytixd" "/usr/sbin/waytixd"
+chmod +x /usr/sbin/waytixd
+
+# Устанавливаем init скрипт
+download_file "${BASE_URL}/waytix.init" "/etc/init.d/waytix"
+chmod +x /etc/init.d/waytix
+
+# Устанавливаем права доступа
+download_file "${BASE_URL}/luci-app-waytix.json" "/usr/share/rpcd/acl.d/luci-app-waytix.json"
+
+# Создаем базовый конфиг, если его нет
+if [ ! -f /etc/config/waytix ]; then
+    cat > /etc/config/waytix << 'EOF'
+config waytix 'config'
+    option sub_link ''
+    list servers ''
+    option selected_server ''
+EOF
+fi
+
+# Создаем базовый конфиг Xray, если его нет
+if [ ! -f /etc/xray/config.json ]; then
+    cat > /etc/xray/config.json << 'EOF'
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": 1080,
+      "listen": "0.0.0.0",
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth",
+        "udp": true,
+        "ip": "127.0.0.1"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
+}
+EOF
+fi
+
+# Добавляем в автозагрузку
+/etc/init.d/waytix enable
+/etc/init.d/waytix start
+
+# Очищаем временные файлы
+rm -rf "$TMP_DIR"
+
+echo ""
+echo "========================================"
+echo "Установка завершена успешно!"
+echo "Откройте веб-интерфейс LuCI и перейдите в раздел:"
+echo "Сервисы -> Шарманка 3000"
+echo "========================================"
+echo ""
+
+exit 0

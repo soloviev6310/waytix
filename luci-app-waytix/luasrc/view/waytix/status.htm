@@ -1,0 +1,94 @@
+<%-
+    local sys = require "luci.sys"
+    local uci = require "luci.model.uci".cursor()
+    
+    local is_running = sys.call("pidof xray >/dev/null") == 0
+    local status_text = is_running and translate("Подключено") or translate("Не подключено")
+    local status_class = is_running and "success" or "error"
+    
+    local server_name = ""
+    if is_running then
+        server_name = uci:get("waytix", "config", "selected_server") or ""
+        if server_name ~= "" then
+            local servers = uci:get_all("waytix", "servers")
+            if servers and servers[server_name] then
+                server_name = servers[server_name].name or server_name
+            end
+        end
+    end
+    
+    local traffic = {
+        up = "0 B",
+        down = "0 B"
+    }
+    
+    if is_running then
+        local stat = sys.exec("/etc/waytix/status.sh 2>/dev/null")
+        if stat then
+            local up, down = stat:match("UP:([^\n]+)\nDOWN:([^\n]+)")
+            if up then traffic.up = up:gsub("^%s+", "") end
+            if down then traffic.down = down:gsub("^%s+", "") end
+        end
+    end
+-%>
+
+<div class="cbi-section">
+    <div class="cbi-section-node">
+        <div class="table" style="margin: 0">
+            <div class="tr">
+                <div class="td left" width="33%"><%:Статус%>:</div>
+                <div class="td left">
+                    <span class="label label-<%=status_class%>"><%=status_text%></span>
+                </div>
+            </div>
+            <% if is_running and server_name ~= "" then -%>
+            <div class="tr">
+                <div class="td left" width="33%"><%:Сервер%>:</div>
+                <div class="td left"><%=server_name%></div>
+            </div>
+            <div class="tr">
+                <div class="td left" width="33%"><%:Отправлено%>:</div>
+                <div class="td left" id="traffic-up"><%=traffic.up%></div>
+            </div>
+            <div class="tr">
+                <div class="td left" width="33%"><%:Получено%>:</div>
+                <div class="td left" id="traffic-down"><%=traffic.down%></div>
+            </div>
+            <% end -%>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    // Обновление статуса каждые 5 секунд
+    function updateStatus() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '<%=url("admin/services/waytix/status")%>', true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                var data = JSON.parse(xhr.responseText);
+                
+                // Обновляем статус
+                var statusEl = document.querySelector('.label');
+                if (statusEl) {
+                    statusEl.textContent = data.running ? '<%=translate("Подключено")%>' : '<%=translate("Не подключено")%>';
+                    statusEl.className = 'label label-' + (data.running ? 'success' : 'error');
+                }
+                
+                // Обновляем имя сервера, если оно есть
+                if (data.server) {
+                    var serverRow = document.querySelector('.tr:nth-child(2)');
+                    if (serverRow && serverRow.style.display === 'none') {
+                        serverRow.style.display = '';
+                    }
+                    var serverName = document.querySelector('.tr:nth-child(2) .td:last-child');
+                    if (serverName) serverName.textContent = data.server;
+                }
+            }
+        };
+        xhr.send();
+    }
+    
+    // Запускаем обновление статуса
+    setInterval(updateStatus, 5000);
+</script>

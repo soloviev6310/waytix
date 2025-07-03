@@ -1,0 +1,27 @@
+{
+    "luci-app-waytix": {
+        "description": "Grant access to Waytix VPN interface",
+        "read": {
+            "file": {
+                "/etc/waytix/status.sh": [ "exec" ],
+                "/etc/waytix/connect.sh": [ "exec" ],
+                "/etc/waytix/update.sh": [ "exec" ]
+            },
+            "ubus": {
+                "file": [ "exec", "read" ],
+                "uci": [ "read" ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "file": [ "write" ],
+                "uci": [ "write" ]
+            },
+            "file": {
+                "/etc/waytix/status.sh": [ "exec" ],
+                "/etc/waytix/connect.sh": [ "exec" ],
+                "/etc/waytix/update.sh": [ "exec" ]
+            }
+        }
+    }
+}

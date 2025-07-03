@@ -1,0 +1,71 @@
+#!/usr/bin/lua
+
+local uci = require "luci.model.uci".cursor()
+local json = require "luci.jsonc"
+local sys = require "luci.sys"
+
+local function get_status()
+    local result = {
+        running = sys.call("pidof xray >/dev/null") == 0,
+        server = ""
+    }
+    
+    if result.running then
+        result.server = uci:get("waytix", "config", "selected_server") or ""
+        
+        -- Получаем статистику трафика
+        local stat = sys.exec("/etc/waytix/status.sh 2>/dev/null")
+        if stat then
+            local up, down = stat:match("UP:([^\n]+)\nDOWN:([^\n]+)")
+            if up then result.upload = up:gsub("^%s+", "") end
+            if down then result.download = down:gsub("^%s+", "") end
+        end
+    end
+    
+    return result
+end
+
+local function handle_request(method, params)
+    if method == "get_status" then
+        return { result = get_status() }
+    elseif method == "connect" then
+        local server = params and params.server
+        if not server then
+            return { error = "Не указан сервер" }
+        end
+        
+        -- Сохраняем выбранный сервер
+        uci:set("waytix", "config", "selected_server", server)
+        uci:commit("waytix")
+        
+        -- Запускаем подключение
+        local result = sys.call("/etc/waytix/connect.sh >/dev/null 2>&1 &")
+        return { success = result == 0 }
+    elseif method == "disconnect" then
+        sys.call("killall xray >/dev/null 2>&1")
+        return { success = true }
+    elseif method == "update" then
+        local result = sys.call("/etc/waytix/update.sh >/tmp/waytix-update.log 2>&1 &")
+        return { success = result == 0 }
+    else
+        return { error = "Неизвестный метод" }
+    end
+end
+
+local function main()
+    local input = json.parse(io.read("*a") or "{}")
+    local response = {}
+    
+    xpcall(function()
+        response = handle_request(input.method, input.params)
+    end, function(err)
+        response = {
+            error = tostring(err),
+            traceback = debug.traceback()
+        }
+    end)
+    
+    io.write(json.stringify(response))
+end
+
+main()
