@@ -6,22 +6,84 @@ error_exit() {
     exit 1
 }
 
-# Проверяем, что скрипт запущен от root
-if [ "$(id -u)" -ne 0 ]; then
-    error_exit "Этот скрипт должен быть запущен от имени root"
-fi
-
-# Создаем лог-файл
+# Путь к лог-файлу
 LOG_FILE="/tmp/waytix-setup.log"
-echo "=== Начало установки Waytix VPN ===" > "$LOG_FILE"
-exec 2>>"$LOG_FILE"
+DEBUG_FILE="/tmp/waytix-debug.log"
+
+# Функция для сбора диагностической информации
+collect_debug_info() {
+    local phase=$1
+    {
+        echo "=== Waytix Debug Info - $phase ==="
+        echo "\n[1] System Info:"
+        echo "Date: $(date)"
+        echo "Uptime: $(cat /proc/uptime 2>/dev/null || echo 'N/A')"
+        echo "Model: $(cat /tmp/sysinfo/model 2>/dev/null || echo 'N/A')"
+        echo "Firmware: $(cat /etc/openwrt_release 2>/dev/null || echo 'N/A')"
+        
+        echo "\n[2] Disk Usage:"
+        df -h
+        
+        echo "\n[3] Memory Info:"
+        free -m
+        
+        echo "\n[4] Running Processes (xray, uhttpd, rpcd):"
+        ps | grep -E 'xray|uhttpd|rpcd|luci'
+        
+        echo "\n[5] Installed Packages (luci, xray, lua):"
+        opkg list-installed | grep -E 'luci|xray|lua|waytix'
+        
+        echo "\n[6] Network Interfaces:"
+        ifconfig
+        
+        echo "\n[7] Listening Ports:"
+        netstat -tuln
+        
+        echo "\n[8] Xray Version:"
+        /usr/bin/xray -version 2>&1 || echo 'Xray not found'
+        
+        echo "\n[9] LuCI Files Check:"
+        ls -la /usr/lib/lua/luci/controller/waytix.lua 2>/dev/null || echo 'LuCI controller not found'
+        ls -la /usr/lib/lua/luci/model/cbi/waytix/ 2>/dev/null || echo 'LuCI model not found'
+        ls -la /www/luci-static/resources/view/waytix/ 2>/dev/null || echo 'LuCI view not found'
+        
+        echo "\n[10] Waytix Configuration:"
+        ls -la /etc/waytix/ 2>/dev/null || echo 'Waytix config dir not found'
+        [ -f /etc/config/waytix ] && cat /etc/config/waytix || echo 'Waytix UCI config not found'
+        
+        echo "\n[11] System Logs (last 20 lines):"
+        logread | tail -n 20
+        
+        echo "\n[12] Xray Logs:"
+        [ -f /var/log/xray.log ] && tail -n 20 /var/log/xray.log || echo 'Xray log not found'
+        
+        echo "\n=== End of Debug Info ===\n"
+    } >> "$DEBUG_FILE" 2>&1
+    log "Собрана отладочная информация (фаза: $phase)"
+}
 
 # Функция для логирования
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
 }
 
+# Проверяем, что скрипт запущен от root
+if [ "$(id -u)" -ne 0 ]; then
+    error_exit "Этот скрипт должен быть запущен от имени root"
+fi
+
+# Основная логика установки
 log "Начало установки..."
+
+# Очищаем старые логи
+echo "" > "$DEBUG_FILE"
+
+# Собираем информацию о состоянии системы до установки
+collect_debug_info "Before Installation"
+
+# Создаем директорию для временных файлов
+TMP_DIR="/tmp/waytix-setup"
+mkdir -p "$TMP_DIR" || error_exit "Не удалось создать временную директорию"
 
 # Обновляем список пакетов
 log "Обновление списка пакетов..."
@@ -36,7 +98,7 @@ opkg update || error_exit "Не удалось обновить список п�
 
 # Основные зависимости
 log "Установка основных зависимостей..."
-for pkg in lua lua-cjson lua-socket lua-bit32 lua-openssl lua-maxminddb \
+for pkg in lua5.3 lua5.3-cjson lua5.3-socket lua5.3-bit32 lua5.3-openssl \
            curl jq unzip coreutils-base64 openssl-util ip-full \
            iptables-mod-tproxy kmod-ipt-tproxy ip6tables-mod-nat kmod-ipt-nat6; do
     if ! opkg list-installed | grep -q "^$pkg "; then
@@ -295,18 +357,28 @@ log "Перезапуск веб-сервера..."
 /etc/init.d/waytix enable
 
 # Очищаем временные файлы
-log "Очистка временных файлов..."
+log "Очистка временных файлы..."
 rm -rf "$TMP_DIR"
 
 log ""
 log "========================================"
+# Собираем информацию о состоянии системы после установки
+collect_debug_info "After Installation"
+
 log "Установка завершена успешно!"
 log ""
 log "Для завершения настройки:"
-log "1. Откройте веб-интерфейс по адресу http://192.168.1.1"
+log "1. Откройте веб-интерфейс по адресу http://192.168.100.1"
 log "2. Перейдите в раздел Сервисы -> Шарманка 3000"
 log "3. Включите и настройте подключение"
-log "========================================"
 log ""
+log "=== Отладочная информация ==="
+log "Полный лог установки: $LOG_FILE"
+log "Отладочная информация: $DEBUG_FILE"
+log ""
+log "Для отладки выполните на роутере:"
+log "cat $DEBUG_FILE | nc termbin.com 9999"
+log "и пришлите полученную ссылку"
+log "============================"
 
 exit 0
