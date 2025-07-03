@@ -1,4 +1,16 @@
 <%+themes/bootstrap/header%>
+<%-
+    local util = require "luci.util"
+    local http = require "luci.http"
+    local uci = require "luci.model.uci".cursor()
+    
+    local sub_link = uci:get("waytix", "config", "sub_link") or ""
+    local selected_server = uci:get("waytix", "config", "selected_server") or ""
+    
+    http.prepare_content("text/html")
+%>
+<script type="text/javascript" src="<%=resource%>/cbi.js"></script>
+<script type="text/javascript" src="<%=resource%>/xhr.js"></script>
 
 <div class="cbi-map">
     <div class="cbi-section">
@@ -170,11 +182,10 @@ var app = {
     
     // Обновление статуса подключения
     updateStatus: function() {
-        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/status")%>', null, 
-            function(xhr, status) {
+        XHR.getJSON('<%=luci.dispatcher.build_url("admin/services/waytix/status")%>', 
+            function(data, status, xhr) {
                 try {
-                    var data = JSON.parse(xhr.responseText);
-                    app.isConnected = data.running;
+                    app.isConnected = data.running || false;
                     app.currentServer = data.server || '-';
                     
                     // Обновляем UI
@@ -384,8 +395,8 @@ var app = {
                         app.showNotification('Ошибка при обновлении списка серверов', 'error');
                     }
                 } catch (e) {
-                    console.error('Ошибка при обработке ответа:', e);
-                    app.showNotification('Ошибка при обработке ответа', 'error');
+                    console.error('Ошибка при обновлении статуса:', error || 'Unknown error');
+                    app.showNotification('Ошибка при обновлении статуса: ' + (error || 'Неизвестная ошибка'), 'error');
                 } finally {
                     btn.disabled = false;
                 }
@@ -465,10 +476,41 @@ var app = {
     }
 };
 
+// Инициализация XHR
+XHR.getJSON = function(url, args, callback) {
+    if (!callback) {
+        callback = args;
+        args = null;
+    }
+    
+    return XHR.get(url, args, function() {
+        try {
+            var json = null;
+            if (this.status === 200) {
+                json = JSON.parse(this.responseText);
+            }
+            callback.call(this, json || {}, this.status);
+        } catch (e) {
+            console.error('Error parsing JSON response:', e);
+            callback.call(this, { error: 'Invalid JSON response' }, this.status);
+        }
+    });
+};
+
 // Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    app.init();
-});
+window.onload = function() {
+    // Проверяем, что все необходимые элементы загружены
+    if (typeof XHR === 'undefined') {
+        console.error('XHR is not defined');
+        return;
+    }
+    
+    if (typeof app !== 'undefined' && typeof app.init === 'function') {
+        app.init();
+    } else {
+        console.error('App initialization failed: app object or init method not found');
+    }
+};
 
 // Очистка при размонтировании страницы
 window.addEventListener('unload', function() {
