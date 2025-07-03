@@ -185,6 +185,42 @@ EOL
 
 chmod +x /etc/init.d/waytix
 
+# Устанавливаем luci-app-waytix
+log "Установка luci-app-waytix..."
+LUCI_DIR="/usr/lib/lua/luci"
+mkdir -p "$LUCI_DIR/controller" "$LUCI_DIR/model/cbi/waytix" "$LUCI_DIR/view/waytix"
+
+# Скачиваем и распаковываем репозиторий
+REPO_URL="https://github.com/soloviev6310/waytix/archive/refs/heads/main.zip"
+if ! curl -L "$REPO_URL" -o "$TMP_DIR/repo.zip"; then
+    error_exit "Не удалось скачать репозиторий"
+fi
+
+if ! unzip -o "$TMP_DIR/repo.zip" -d "$TMP_DIR"; then
+    error_exit "Не удалось распаковать репозиторий"
+fi
+
+REPO_DIR="$TMP_DIR/waytix-main"
+
+# Копируем файлы luci-app-waytix
+cp -r "$REPO_DIR/luci-app-waytix/luasrc/controller/waytix.lua" "$LUCI_DIR/controller/"
+mkdir -p "$LUCI_DIR/model/cbi/waytix"
+cp -r "$REPO_DIR/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "$LUCI_DIR/model/cbi/waytix/"
+mkdir -p "$LUCI_DIR/view/waytix"
+cp -r "$REPO_DIR/luci-app-waytix/luasrc/view/waytix/"* "$LUCI_DIR/view/waytix/"
+
+# Копируем системные файлы
+mkdir -p /usr/share/rpcd/acl.d
+cp "$REPO_DIR/luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" /usr/share/rpcd/acl.d/
+
+# Перезапускаем веб-сервер
+log "Перезапуск веб-сервера..."
+/etc/init.d/rpcd restart
+/etc/init.d/uhttpd restart
+
+# Включаем автозапуск сервиса
+/etc/init.d/waytix enable
+
 # Очищаем временные файлы
 log "Очистка временных файлов..."
 rm -rf "$TMP_DIR"
