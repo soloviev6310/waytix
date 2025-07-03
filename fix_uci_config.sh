@@ -135,19 +135,36 @@ DEBUG_FILE="/tmp/waytix.debug.$$"
 cp "$TEMP_FILE" "$DEBUG_FILE"
 log "Generated config saved to $DEBUG_FILE"
 
-# Debug: Show file permissions
-log "Debug: File permissions - $(ls -la "$TEMP_FILE")"
-
-# Debug: Show first 10 lines of generated config
-log "Debug: First 10 lines of generated config:"
-head -n 10 "$TEMP_FILE" | while read -r line; do
+# Debug: Show file permissions and content
+log "Debug: File info - $(ls -la "$TEMP_FILE")"
+log "Debug: First 20 lines of generated config:"
+head -n 20 "$TEMP_FILE" | while read -r line; do
     log "  $line"
 done
 
+# Create a temporary directory for UCI config
+UCI_TEMP_DIR="/tmp/uci_temp_$$"
+mkdir -p "$UCI_TEMP_DIR"
+cp "$TEMP_FILE" "$UCI_TEMP_DIR/waytix"
+
 # Validate the new config
-log "Validating new configuration..."
-VALIDATE_OUTPUT=$(uci -c /tmp validate 2>&1)
+log "Validating new configuration in $UCI_TEMP_DIR..."
+VALIDATE_OUTPUT=$(cd "$UCI_TEMP_DIR" && uci -c "$UCI_TEMP_DIR" validate 2>&1)
 VALIDATE_EXIT_CODE=$?
+
+# Save validation output for debugging
+log "Validation output:"
+echo "$VALIDATE_OUTPUT" | while read -r line; do
+    log "  $line"
+done
+
+# Show the full config if validation fails
+if [ $VALIDATE_EXIT_CODE -ne 0 ]; then
+    log "Full config for debugging:"
+    cat "$TEMP_FILE" | while read -r line; do
+        log "  $line"
+    done
+fi
 
 if [ $VALIDATE_EXIT_CODE -eq 0 ]; then
     log "Configuration is valid, applying changes..."
