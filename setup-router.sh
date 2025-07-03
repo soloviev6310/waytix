@@ -51,8 +51,8 @@ log "Установка Xray..."
 XRAY_VERSION="1.8.4"
 XRAY_ARCH=""
 
-# Определяем архитектуру
-case "$(uname -m)" in
+# Определяем архитектуру процессора
+case $(uname -m) in
     "x86_64") XRAY_ARCH="64" ;;
     "i386" | "i686") XRAY_ARCH="32" ;;
     "aarch64" | "armv8" | "arm64") XRAY_ARCH="arm64-v8a" ;;
@@ -62,21 +62,33 @@ case "$(uname -m)" in
     *) error_exit "Неподдерживаемая архитектура: $(uname -m)" ;;
 esac
 
+# Создаем необходимые директории
+mkdir -p "/usr/bin" "/etc/waytix" "/etc/xray" "$TMP_DIR/xray" || error_exit "Не удалось создать системные директории"
+
+XRAY_VERSION="1.8.3"
 XRAY_PKG="Xray-linux-${XRAY_ARCH}.zip"
 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${XRAY_PKG}"
+XRAY_TMP="$TMP_DIR/xray.zip"
+XRAY_DIR="$TMP_DIR/xray"
 
-if ! curl -L "$XRAY_URL" -o "$TMP_DIR/xray.zip"; then
-    error_exit "Ошибка при скачивании Xray"
+log "Скачивание Xray для архитектуры $XRAY_ARCH..."
+if ! curl -L "$XRAY_URL" -o "$XRAY_TMP"; then
+    error_exit "Не удалось скачать Xray"
 fi
 
-if ! unzip -o "$TMP_DIR/xray.zip" -d "$TMP_DIR/xray"; then
-    error_exit "Ошибка при распаковке Xray"
+log "Распаковка Xray..."
+if ! unzip -o "$XRAY_TMP" -d "$XRAY_DIR"; then
+    error_exit "Не удалось распаковать Xray"
 fi
 
-# Устанавливаем Xray
-install -d /usr/bin || error_exit "Не удалось создать директорию /usr/bin"
-install -m 755 "$TMP_DIR/xray/xray" /usr/bin/ || error_exit "Не удалось установить Xray"
-install -d /etc/xray || error_exit "Не удалось создать директорию /etc/xray"
+# Копируем Xray
+if [ -f "$XRAY_DIR/xray" ]; then
+    cp -f "$XRAY_DIR/xray" "/usr/bin/xray" || error_exit "Не удалось скопировать Xray"
+    chmod +x "/usr/bin/xray" || error_exit "Не удалось установить права на Xray"
+    log "Xray успешно установлен в /usr/bin/xray"
+else
+    error_exit "Файл Xray не найден в распакованных файлах"
+fi
 
 # Создаем базовую конфигурацию Xray
 log "Создание конфигурации Xray..."
@@ -188,30 +200,64 @@ chmod +x /etc/init.d/waytix
 # Устанавливаем luci-app-waytix
 log "Установка luci-app-waytix..."
 LUCI_DIR="/usr/lib/lua/luci"
-mkdir -p "$LUCI_DIR/controller" "$LUCI_DIR/model/cbi/waytix" "$LUCI_DIR/view/waytix"
+LUCI_APP_DIR="$LUCI_DIR/controller"
+LUCI_MODEL_DIR="$LUCI_DIR/model/cbi/waytix"
+LUCI_VIEW_DIR="$LUCI_DIR/view/waytix"
+LUCI_ACL_DIR="/usr/share/rpcd/acl.d"
 
-# Скачиваем и распаковываем репозиторий
+# Создаем необходимые директории
+mkdir -p "$LUCI_APP_DIR" "$LUCI_MODEL_DIR" "$LUCI_VIEW_DIR" "$LUCI_ACL_DIR" || error_exit "Не удалось создать директории LuCI"
+
+# Скачиваем репозиторий
 REPO_URL="https://github.com/soloviev6310/waytix/archive/refs/heads/main.zip"
-if ! curl -L "$REPO_URL" -o "$TMP_DIR/repo.zip"; then
+REPO_ZIP="$TMP_DIR/repo.zip"
+REPO_DIR="$TMP_DIR/waytix-main"
+
+log "Скачивание репозитория..."
+if ! curl -L "$REPO_URL" -o "$REPO_ZIP"; then
     error_exit "Не удалось скачать репозиторий"
 fi
 
-if ! unzip -o "$TMP_DIR/repo.zip" -d "$TMP_DIR"; then
+log "Распаковка репозитория..."
+if ! unzip -o "$REPO_ZIP" -d "$TMP_DIR"; then
     error_exit "Не удалось распаковать репозиторий"
 fi
 
-REPO_DIR="$TMP_DIR/waytix-main"
+# Копируем файлы LuCI
+log "Копирование файлов LuCI..."
 
-# Копируем файлы luci-app-waytix
-cp -r "$REPO_DIR/luci-app-waytix/luasrc/controller/waytix.lua" "$LUCI_DIR/controller/"
-mkdir -p "$LUCI_DIR/model/cbi/waytix"
-cp -r "$REPO_DIR/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "$LUCI_DIR/model/cbi/waytix/"
-mkdir -p "$LUCI_DIR/view/waytix"
-cp -r "$REPO_DIR/luci-app-waytix/luasrc/view/waytix/"* "$LUCI_DIR/view/waytix/"
+# Копируем контроллер
+if [ -f "$REPO_DIR/luci-app-waytix/luasrc/controller/waytix.lua" ]; then
+    cp -f "$REPO_DIR/luci-app-waytix/luasrc/controller/waytix.lua" "$LUCI_APP_DIR/" || error_exit "Не удалось скопировать контроллер"
+else
+    error_exit "Файл контроллера не найден"
+fi
 
-# Копируем системные файлы
-mkdir -p /usr/share/rpcd/acl.d
-cp "$REPO_DIR/luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" /usr/share/rpcd/acl.d/
+# Копируем модель
+if [ -f "$REPO_DIR/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" ]; then
+    mkdir -p "$LUCI_MODEL_DIR"
+    cp -f "$REPO_DIR/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "$LUCI_MODEL_DIR/" || error_exit "Не удалось скопировать модель"
+else
+    error_exit "Файл модели не найден"
+fi
+
+# Копируем представления
+if [ -d "$REPO_DIR/luci-app-waytix/luasrc/view/waytix" ]; then
+    mkdir -p "$LUCI_VIEW_DIR"
+    cp -r "$REPO_DIR/luci-app-waytix/luasrc/view/waytix/"* "$LUCI_VIEW_DIR/" || error_exit "Не удалось скопировать представления"
+else
+    error_exit "Директория представлений не найдена"
+fi
+
+# Копируем ACL
+if [ -f "$REPO_DIR/luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" ]; then
+    mkdir -p "$LUCI_ACL_DIR"
+    cp -f "$REPO_DIR/luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" "$LUCI_ACL_DIR/" || error_exit "Не удалось скопировать ACL"
+else
+    error_exit "Файл ACL не найден"
+fi
+
+log "Файлы LuCI успешно скопированы"
 
 # Перезапускаем веб-сервер
 log "Перезапуск веб-сервера..."
