@@ -1,6 +1,21 @@
 #!/bin/sh
 
 set -e  # Exit on any error
+set -x  # Debug output
+
+# Get the directory where the script is located
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$SCRIPT_DIR" || exit 1
+
+echo "Current directory: $(pwd)"
+echo "Script directory: $SCRIPT_DIR"
+
+# Check if we're in the right directory
+if [ ! -d "luci-app-waytix" ]; then
+    echo "Error: luci-app-waytix directory not found in $(pwd)"
+    echo "Please run this script from the repository root directory"
+    exit 1
+fi
 
 # Проверяем, что скрипт запущен от root
 if [ "$(id -u)" -ne 0 ]; then
@@ -61,53 +76,89 @@ install -m 644 "$TMP_DIR/xray/*.json" /etc/xray/ 2>/dev/null || true
 echo "Устанавливаем luci-app-waytix..."
 INSTALL_DIR="/usr/lib/lua/luci"
 
-# Создаем директории
+# Выводим отладочную информацию
+echo "Working directory: $(pwd)"
+echo "Repository root: $SCRIPT_DIR"
+
+# Проверяем существование исходных директорий
+for dir in \
+    "luci-app-waytix/luasrc/controller" \
+    "luci-app-waytix/luasrc/model/cbi/waytix" \
+    "luci-app-waytix/luasrc/view/waytix" \
+    "luci-app-waytix/root/etc/waytix" \
+    "luci-app-waytix/root/etc/init.d" \
+    "luci-app-waytix/root/usr/sbin" \
+    "luci-app-waytix/root/usr/share/rpcd/acl.d" \
+    "luci-app-waytix/root/usr/libexec/rpcd" \
+    "luci-app-waytix/root/etc/crontabs"; do
+    if [ ! -d "$dir" ]; then
+        echo "Error: Directory $dir not found"
+        exit 1
+    fi
+done
+
+# Создаем целевые директории
 mkdir -p "${INSTALL_DIR}/controller"
 mkdir -p "${INSTALL_DIR}/model/cbi/waytix"
 mkdir -p "${INSTALL_DIR}/view/waytix"
 
 # Копируем файлы контроллера
-cp luci-app-waytix/luasrc/controller/waytix.lua "${INSTALL_DIR}/controller/"
+echo "Копируем контроллер..."
+cp -v "${SCRIPT_DIR}/luci-app-waytix/luasrc/controller/waytix.lua" "${INSTALL_DIR}/controller/"
 
 # Копируем модель
-cp luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua "${INSTALL_DIR}/model/cbi/waytix/"
+echo "Копируем модель..."
+cp -v "${SCRIPT_DIR}/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "${INSTALL_DIR}/model/cbi/waytix/"
 
 # Копируем шаблоны
-cp luci-app-waytix/luasrc/view/waytix/*.htm "${INSTALL_DIR}/view/waytix/"
+echo "Копируем шаблоны..."
+for file in "${SCRIPT_DIR}/luci-app-waytix/luasrc/view/waytix/"*.htm; do
+    cp -v "$file" "${INSTALL_DIR}/view/waytix/"
+done
 
 # Устанавливаем системные файлы
+echo "Устанавливаем системные файлы..."
 mkdir -p /etc/waytix
-cp luci-app-waytix/root/etc/waytix/*.sh /etc/waytix/
-chmod +x /etc/waytix/*.sh
+for file in "${SCRIPT_DIR}/luci-app-waytix/root/etc/waytix/"*.sh; do
+    cp -v "$file" /etc/waytix/
+    chmod +x "/etc/waytix/$(basename "$file")"
+done
 
 # Устанавливаем конфигурацию Xray
+echo "Устанавливаем конфигурацию Xray..."
 mkdir -p /etc/xray
-cp luci-app-waytix/root/etc/xray/config.json /etc/xray/
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/etc/xray/config.json" /etc/xray/
 
 # Устанавливаем init скрипт
-cp luci-app-waytix/root/etc/init.d/waytix /etc/init.d/
+echo "Устанавливаем init скрипт..."
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/etc/init.d/waytix" /etc/init.d/
 chmod +x /etc/init.d/waytix
 
-# Устанавливаем демон
+# Устанавливаем демона
+echo "Устанавливаем демона..."
 mkdir -p /usr/sbin
-cp luci-app-waytix/root/usr/sbin/waytixd /usr/sbin/
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/usr/sbin/waytixd" /usr/sbin/
 chmod +x /usr/sbin/waytixd
 
 # Устанавливаем конфигурацию
+echo "Устанавливаем конфигурацию..."
 mkdir -p /etc/config
-cp luci-app-waytix/root/etc/config/waytix /etc/config/
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/etc/config/waytix" /etc/config/
 
 # Добавляем права доступа
+echo "Настраиваем права доступа..."
 mkdir -p /usr/share/rpcd/acl.d
-cp luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json /usr/share/rpcd/acl.d/
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" /usr/share/rpcd/acl.d/
 
 # Устанавливаем RPCD скрипт
+echo "Устанавливаем RPCD скрипт..."
 mkdir -p /usr/libexec/rpcd
-cp luci-app-waytix/root/usr/libexec/rpcd/waytix /usr/libexec/rpcd/
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/usr/libexec/rpcd/waytix" /usr/libexec/rpcd/
 chmod +x /usr/libexec/rpcd/waytix
 
 # Устанавливаем крон-задачу
-cp luci-app-waytix/root/etc/crontabs/root /etc/crontabs/
+echo "Настраиваем крон-задачу..."
+cp -v "${SCRIPT_DIR}/luci-app-waytix/root/etc/crontabs/root" /etc/crontabs/
 
 # Включаем и запускаем сервис
 if [ -f "/etc/init.d/waytix" ]; then
