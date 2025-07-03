@@ -25,77 +25,110 @@ trap cleanup EXIT
 log "Creating backup of current configuration to $BACKUP_FILE"
 cp /etc/config/waytix "$BACKUP_FILE"
 
-# Get list of all sections in the current config
-log "Analyzing current configuration..."
-uci show waytix > "$UCI_TEMP" 2>&1 || {
-    log "Warning: Failed to read current UCI configuration"
-    # Continue with empty config if we can't read it
-    echo "" > "$UCI_TEMP"
-}
-
 # Create clean config
 log "Generating new configuration..."
 cat > "$TEMP_FILE" << 'EOF'
-# Main configuration
+# Основные настройки Waytix
 config waytix 'config'
+    # Ссылка на подписку vless
     option sub_link ''
+    
+    # Выбранный сервер (ID из секции server)
     option selected_server ''
+    
+    # Автозапуск при загрузке (1 - включен, 0 - выключен)
     option auto_start '1'
+    
+    # Режим отладки (1 - включен, 0 - выключен)
     option debug '0'
 
-# Routing rules
+# Правила маршрутизации
 config routing 'rules'
+    # Перенаправлять DNS-запросы через VPN (1 - включить, 0 - выключить)
     option dns_through_vpn '1'
+    
+    # Обход локальных сетей (1 - включить, 0 - выключить)
     option bypass_private '1'
+    
+    # Обход кириллических доменов (1 - включить, 0 - выключить)
     option bypass_cyrillic '1'
 
-# Xray settings
+# Настройки Xray
 config xray 'settings'
+    # Уровень логирования (debug, info, warning, error, none)
     option loglevel 'warning'
+    
+    # Порт для API (если нужно)
     option api_port '10085'
+    
+    # Включить статистику (1 - включить, 0 - выключить)
     option enable_stats '1'
 
-# DNS settings
+# Настройки DNS
 config dns 'settings'
+    # DNS-серверы (через запятую)
     option servers '1.1.1.1, 8.8.8.8, 1.0.0.1, 8.8.4.4'
+    
+    # Включить DNS через TCP (1 - включить, 0 - выключить)
     option tcp_dns '1'
 
-# Monitoring settings
+# Настройки мониторинга
 config monitoring 'status'
+    # Включить мониторинг трафика (1 - включить, 0 - выключить)
     option enable_traffic '1'
+    
+    # Интервал обновления статистики (в секундах)
     option update_interval '10'
+    
+    # Сохранять историю трафика (1 - включить, 0 - выключить)
     option save_history '1'
 EOF
 
-# Function to safely get UCI value
-get_uci_value() {
-    local section=$1
-    local option=$2
-    uci -q get "waytix.$section.$option" 2>/dev/null || echo ""
+# Function to safely get config value
+get_config_value() {
+    local file=$1
+    local section=$2
+    local option=$3
+    
+    awk -v section="$section" -v option="$option" '
+    $0 ~ "^[[:space:]]*config[[:space:]]+[^[:space:]]+[[:space:]]+\"?" section "\"?" {
+        in_section = 1
+        next
+    }
+    in_section && $1 == "option" && $2 == option {
+        gsub(/^[^\"]*\"|"[^\"]*$/, "")
+        print $0
+        exit
+    }
+    ' "$BACKUP_FILE"
 }
 
-# Preserve existing server configurations
+# Function to get server sections
+get_server_sections() {
+    awk '
+    $0 ~ "^[[:space:]]*config[[:space:]]+server[[:space:]]+\"?[^\"]*\"?" {
+        in_server = 1
+        print "config server"
+        next
+    }
+    in_server && /^[[:space:]]*option/ {
+        print "    " $0
+    }
+    in_server && /^[[:space:]]*$/ {
+        in_server = 0
+        print ""
+    }
+    ' "$BACKUP_FILE"
+}
+
+# Add server sections if they exist
 log "Processing server configurations..."
-grep -E "^waytix\.@server" "$UCI_TEMP" | while read -r line; do
-    section_id=$(echo "$line" | cut -d'=' -f1 | cut -d'[' -f2 | cut -d']' -f1)
-    section_name=$(get_uci_value "@server[$section_id]" "name")
-    section_url=$(get_uci_value "@server[$section_id]" "url")
-    
-    if [ -n "$section_url" ]; then
-        {
-            echo ""
-            echo "config server"
-            echo "    option name '${section_name:-Server $section_id}'"
-            echo "    option url '$section_url'"
-            
-            # Get all options for this server
-            grep -E "^waytix\.@server\[$section_id\]" "$UCI_TEMP" | \
-                grep -v "\.name=" | \
-                grep -v "\.url=" | \
-                sed -e 's/^[^=]*=//' -e 's/^/    option /' -e 's/=/ "/' -e 's/$/"/'
-        } >> "$TEMP_FILE"
-    fi
-done
+SERVER_SECTIONS=$(get_server_sections)
+if [ -n "$SERVER_SECTIONS" ]; then
+    echo "" >> "$TEMP_FILE"
+    echo "# Секции серверов (добавляются автоматически при загрузке подписки)" >> "$TEMP_FILE"
+    echo "$SERVER_SECTIONS" >> "$TEMP_FILE"
+fi
 
 # Validate the new config
 log "Validating new configuration..."
