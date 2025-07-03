@@ -35,10 +35,13 @@ end
 
 o = s:option(ListValue, "selected_server", 
     translate("Выберите сервер"))
-for k, v in pairs(server_list) do
-    o:value(k, v)
-end
-if #o:get_titles() == 0 then
+
+-- Проверяем, есть ли серверы в списке
+if next(server_list) ~= nil then
+    for k, v in pairs(server_list) do
+        o:value(k, v)
+    end
+else
     o:value("", "-- Нет доступных серверов --")
 end
 
