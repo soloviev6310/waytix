@@ -1,26 +1,33 @@
 module("luci.controller.waytix", package.seeall)
 
+function index()
+    local page
+    
+    page = entry({"admin", "services", "waytix"}, 
+                template("waytix/control"), 
+                _("Шарманка 3000"), 60)
+    page.dependent = true
+    
+    page = entry({"admin", "services", "waytix", "status"}, 
+                call("action_status"))
+    page.leaf = true
+    
+    page = entry({"admin", "services", "waytix", "toggle"}, 
+                call("action_toggle"))
+    page.leaf = true
+    
+    page = entry({"admin", "services", "waytix", "update"}, 
+                call("action_update"))
+    page.leaf = true
+    
+    page = entry({"admin", "services", "waytix", "servers"}, 
+                call("action_servers"))
+    page.leaf = true
+end
+
 local http = require "luci.http"
 local sys = require "luci.sys"
 local uci = luci.model.uci.cursor()
-
-function index()
-    entry({"admin", "services", "waytix"}, 
-          template("waytix/control"), 
-          _("Шарманка 3000"), 60).dependent = true
-          
-    entry({"admin", "services", "waytix", "status"}, 
-          call("action_status"))
-          
-    entry({"admin", "services", "waytix", "toggle"}, 
-          call("action_toggle"))
-          
-    entry({"admin", "services", "waytix", "update"}, 
-          call("action_update"))
-          
-    entry({"admin", "services", "waytix", "servers"}, 
-          call("action_servers"))
-end
 
 function action_status()
     local status = {

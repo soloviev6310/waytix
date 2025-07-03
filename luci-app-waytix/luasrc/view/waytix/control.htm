@@ -1,4 +1,4 @@
-<%+ "header" %>
+<% include("themes/bootstrap/header") %>
 
 <div class="cbi-map">
     <div class="cbi-section">
@@ -32,6 +32,8 @@
     </div>
 </div>
 
+<%+footer%>
+
 <script type="text/javascript">
 //<![CDATA[
     'use strict';
@@ -40,7 +42,7 @@
     var currentServer = '';
     
     function updateStatus() {
-        XHR.get('<%= url("admin/services/waytix/status") %>', null, 
+        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/status")%>', null, 
             function(xhr, status) {
                 try {
                     var data = JSON.parse(xhr.responseText);
@@ -74,7 +76,8 @@
         var btn = this;
         btn.disabled = true;
         
-        XHR.post('<%= url("admin/services/waytix/toggle") %>', { token: '<%=token%>' },
+        XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/toggle")%>', 
+            'token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
             function(xhr, status) {
                 btn.disabled = false;
                 updateStatus();
@@ -86,7 +89,8 @@
         var btn = this;
         btn.disabled = true;
         
-        XHR.post('<%= url("admin/services/waytix/update") %>', { token: '<%=token%>' },
+        XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/update")%>', 
+            'token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
             function(xhr, status) {
                 btn.disabled = false;
                 var data = JSON.parse(xhr.responseText);
@@ -101,8 +105,11 @@
     
     // Инициализация
     document.addEventListener('DOMContentLoaded', function() {
-        document.getElementById('btn-toggle').addEventListener('click', toggleConnection);
-        document.getElementById('btn-update').addEventListener('click', updateServers);
+        var btnToggle = document.getElementById('btn-toggle');
+        var btnUpdate = document.getElementById('btn-update');
+        
+        if (btnToggle) btnToggle.addEventListener('click', toggleConnection);
+        if (btnUpdate) btnUpdate.addEventListener('click', updateServers);
         
         // Обновляем статус каждые 5 секунд
         updateStatus();

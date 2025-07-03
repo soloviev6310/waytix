@@ -1,4 +1,4 @@
-<%+ "header" %>
+<% include("themes/bootstrap/header") %>
 
 <div class="cbi-map">
     <div class="cbi-section">
@@ -41,6 +41,8 @@
     </div>
 </div>
 
+<%+footer%>
+
 <script type="text/javascript">
 //<![CDATA[
     'use strict';
@@ -75,30 +77,41 @@
     }
     
     function updateStatus() {
-        XHR.get('<%= url("admin/services/waytix/status") %>', null, 
+        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/status")%>', null, 
             function(xhr, status) {
                 try {
                     var data = JSON.parse(xhr.responseText);
                     
                     // Обновляем статус подключения
-                    document.getElementById('vpn-status').innerHTML = data.running ? 
-                        '<span style="color: green"><%:Активно%></span>' : 
-                        '<span style="color: red"><%:Неактивно%></span>';
+                    var statusEl = document.getElementById('vpn-status');
+                    if (statusEl) {
+                        statusEl.innerHTML = data.running ? 
+                            '<span style="color: green"><%:Активно%></span>' : 
+                            '<span style="color: red"><%:Неактивно%></span>';
+                    }
                     
                     // Обновляем информацию о сервере
-                    document.getElementById('current-server').textContent = 
-                        data.server || '-';
+                    var serverEl = document.getElementById('current-server');
+                    if (serverEl) {
+                        serverEl.textContent = data.server || '-';
+                    }
                     
                     // Обновляем статистику, если она есть
                     if (data.stats) {
-                        document.getElementById('uptime').textContent = 
-                            formatUptime(data.stats.uptime);
-                            
-                        document.getElementById('traffic-tx').textContent = 
-                            formatBytes(data.stats.traffic.tx);
-                            
-                        document.getElementById('traffic-rx').textContent = 
-                            formatBytes(data.stats.traffic.rx);
+                        var uptimeEl = document.getElementById('uptime');
+                        if (uptimeEl) {
+                            uptimeEl.textContent = formatUptime(data.stats.uptime);
+                        }
+                        
+                        var txEl = document.getElementById('traffic-tx');
+                        if (txEl) {
+                            txEl.textContent = formatBytes(data.stats.traffic.tx);
+                        }
+                        
+                        var rxEl = document.getElementById('traffic-rx');
+                        if (rxEl) {
+                            rxEl.textContent = formatBytes(data.stats.traffic.rx);
+                        }
                     }
                 } catch (e) {
                     console.error('Ошибка обновления статуса:', e);
