@@ -770,46 +770,54 @@ local function update_xray_config()
         log = {
             loglevel = "warning"
         },
-        inbounds = [{
-            port = 1080,
-            listen = "0.0.0.0",
-            protocol = "socks",
-            settings = {
-                auth = "noauth",
-                udp = true,
-                ip = "127.0.0.1"
+        inbounds = {
+            {
+                port = 1080,
+                listen = "0.0.0.0",
+                protocol = "socks",
+                settings = {
+                    auth = "noauth",
+                    udp = true,
+                    ip = "127.0.0.1"
+                }
             }
-        }],
-        outbounds = [{
-            protocol = "vless",
-            settings = {
-                vnext = [{
-                    address = server.host,
-                    port = server.port,
-                    users = [{
-                        id = server.uuid,
-                        flow = server.flow ~= "" and server.flow or nil,
-                        encryption = "none"
-                    }]
-                }]
-            },
-            streamSettings = {
-                network = server.type,
-                security = server.security ~= "none" and server.security or nil,
-                tlsSettings = (server.security == "tls" or server.security == "xtls") and {
-                    serverName = server.sni ~= "" and server.sni or nil,
-                    fingerprint = server.fp ~= "" and server.fp or nil,
-                    alpn = server.alpn ~= "" and {server.alpn} or nil
-                } or nil,
-                wsSettings = server.type == "ws" and {
-                    path = server.path ~= "" and server.path or "/",
-                    headers = {
-                        Host = server.host
+        },
+        outbounds = {
+            {
+                protocol = "vless",
+                settings = {
+                    vnext = {
+                        {
+                            address = server.host,
+                            port = server.port,
+                            users = {
+                                {
+                                    id = server.uuid,
+                                    flow = server.flow ~= "" and server.flow or nil,
+                                    encryption = "none"
+                                }
+                            }
+                        }
                     }
-                } or nil,
-                grpcSettings = server.type == "grpc" and {
-                    serviceName = server.path ~= "" and server.path:gsub("^/+", "") or nil
-                } or nil
+                },
+                streamSettings = {
+                    network = server.type,
+                    security = server.security ~= "none" and server.security or nil,
+                    tlsSettings = (server.security == "tls" or server.security == "xtls") and {
+                        serverName = server.sni ~= "" and server.sni or nil,
+                        fingerprint = server.fp ~= "" and server.fp or nil,
+                        alpn = server.alpn ~= "" and {server.alpn} or nil
+                    } or nil,
+                    wsSettings = server.type == "ws" and {
+                        path = server.path ~= "" and server.path or "/",
+                        headers = {
+                            Host = server.host
+                        }
+                    } or nil,
+                    grpcSettings = server.type == "grpc" and {
+                        serviceName = server.path ~= "" and server.path:gsub("^/+", "") or nil
+                    } or nil
+                }
             }
         }, {
             protocol = "freedom",
