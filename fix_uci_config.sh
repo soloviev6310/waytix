@@ -8,9 +8,11 @@ BACKUP_FILE="/etc/config/waytix.backup.$(date +%s)"
 TEMP_FILE="/tmp/waytix.config.$$"
 UCI_TEMP="/tmp/uci.$$"
 
-# Function to log messages
+# Function to log messages (compatible with BusyBox)
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    # Use a simpler date format that works with BusyBox
+    TIMESTAMP=$(date +'%Y-%m-%d %H:%M')
+    echo "[$TIMESTAMP] $1"
 }
 
 # Function to clean up temp files
