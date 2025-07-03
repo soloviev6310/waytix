@@ -164,43 +164,48 @@ fix_pgrep_usage() {
 
 # Fix known issues
 fix_uci_config
-fix_pgrep_usage
 
-# Create target directories
-echo "Creating target directories..."
-mkdir -p "${INSTALL_DIR}/controller"
-mkdir -p "${INSTALL_DIR}/model/cbi/waytix"
-mkdir -p "${INSTALL_DIR}/view/waytix"
-mkdir -p "/etc/waytix"
-mkdir -p "/etc/xray"
-mkdir -p "/usr/sbin"
-mkdir -p "/usr/share/rpcd/acl.d"
-mkdir -p "/usr/libexec/rpcd"
-mkdir -p "/etc/crontabs"
-
-# Copy files
-echo "Copying files..."
-
-# Copy controller
-cp -v "luci-app-waytix/luasrc/controller/waytix.lua" "${INSTALL_DIR}/controller/"
-
-# Copy model
-cp -v "luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "${INSTALL_DIR}/model/cbi/waytix/"
-
-# Copy views
-for view in luci-app-waytix/luasrc/view/waytix/*.htm; do
-    cp -v "$view" "${INSTALL_DIR}/view/waytix/"
+# Create necessary directories
+log "Creating directories..."
+for dir in "$INSTALL_DIR/controller" \
+           "$INSTALL_DIR/model/cbi/waytix" \
+           "$INSTALL_DIR/view/waytix" \
+           "/etc/waytix" \
+           "$INIT_DIR"; do
+    mkdir -p "$dir" || error "Failed to create directory: $dir"
 done
 
-# Copy system scripts
-for script in luci-app-waytix/root/etc/waytix/*.sh; do
-    cp -v "$script" "/etc/waytix/"
-    chmod +x "/etc/waytix/$(basename "$script")"
+# Download and install files
+log "Downloading files from repository..."
+for file in "luasrc/controller/waytix.lua" \
+            "luasrc/model/cbi/waytix/" \
+            "luasrc/view/waytix/" \
+            "root/etc/init.d/waytix" \
+            "root/etc/config/waytix" \
+            "root/usr/bin/waytix-*"; do
+    url="$REPO_URL/$file"
+    dest="${file#root}"
+    
+    # Handle wildcards
+    if [[ "$file" == *"*"* ]]; then
+        for f in $file; do
+            filename=$(basename "$f")
+            wget -q -P "$TEMP_DIR" "$REPO_URL/$f" || error "Failed to download $f"
+            install -m 755 "$TEMP_DIR/$filename" "$BIN_DIR/" || error "Failed to install $filename"
+        done
+    else
+        wget -q -P "$TEMP_DIR" "$url" || error "Failed to download $file"
+        
+        # Handle directories
+        if [[ "$file" == */ ]]; then
+            mkdir -p "$INSTALL_DIR/$dest"
+            cp -r "$TEMP_DIR/$(basename "$file")" "$INSTALL_DIR/$dest"
+        else
+            install -m 644 "$TEMP_DIR/$(basename "$file")" "/$dest" || \
+                error "Failed to install $file to /$dest"
+        fi
+    fi
 done
-
-# Copy init script
-cp -v "luci-app-waytix/root/etc/init.d/waytix" "/etc/init.d/"
-chmod +x "/etc/init.d/waytix"
 
 # Copy daemon
 cp -v "luci-app-waytix/root/usr/sbin/waytixd" "/usr/sbin/"
