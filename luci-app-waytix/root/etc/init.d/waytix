@@ -1,35 +1,200 @@
 #!/bin/sh /etc/rc.common
 # Copyright (C) 2023 Waytix Team
+# Управление сервисом Waytix VPN
 
+# Порядок загрузки (поздний старт, чтобы сеть уже была поднята)
 START=99
 STOP=10
 
+# Используем procd для управления процессом
 USE_PROCD=1
-PROG=/usr/sbin/waytixd
 
+# Основная программа и конфиг
+PROG=/usr/sbin/waytixd
+CONFIG=/etc/config/waytix
+XRAY_BIN=/usr/bin/xray
+XRAY_CONFIG=/etc/xray/config.json
+LOG_FILE=/var/log/waytix.log
+PID_FILE=/var/run/waytix.pid
+
+# Проверяем наличие Xray
+check_xray() {
+    [ -x "$XRAY_BIN" ] || {
+        logger -t waytix "Xray не найден или не имеет прав на выполнение"
+        return 1
+    }
+    return 0
+}
+
+# Проверяем конфигурацию
+check_config() {
+    [ -f "$XRAY_CONFIG" ] || {
+        logger -t waytix "Конфигурационный файл Xray не найден: $XRAY_CONFIG"
+        return 1
+    }
+    
+    # Проверяем JSON на валидность
+    if ! jq empty "$XRAY_CONFIG" 2>/dev/null; then
+        logger -t waytix "Ошибка в конфигурационном файле Xray: $XRAY_CONFIG"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Запуск Xray
+start_xray() {
+    if ! check_xray || ! check_config; then
+        return 1
+    fi
+    
+    # Создаем каталог для логов, если его нет
+    mkdir -p /var/log/xray
+    
+    # Запускаем Xray в фоновом режиме
+    start-stop-daemon -S -b -m -p "$PID_FILE" -x "$XRAY_BIN" -- run -config "$XRAY_CONFIG"
+    
+    # Проверяем, запустился ли процесс
+    sleep 1
+    if ! pgrep -F "$PID_FILE" >/dev/null; then
+        logger -t waytix "Не удалось запустить Xray"
+        return 1
+    fi
+    
+    logger -t waytix "Xray успешно запущен"
+    return 0
+}
+
+# Остановка Xray
+stop_xray() {
+    if [ -f "$PID_FILE" ]; then
+        start-stop-daemon -K -p "$PID_FILE" -s TERM
+        rm -f "$PID_FILE"
+        logger -t waytix "Xray остановлен"
+    else
+        # Если PID-файл отсутствует, пытаемся убить по имени
+        pkill -x "$(basename "$XRAY_BIN")" 2>/dev/null
+    fi
+    
+    # Дополнительная проверка и принудительное завершение при необходимости
+    if pgrep -x "$(basename "$XRAY_BIN")" >/dev/null; then
+        sleep 2
+        pkill -9 -x "$(basename "$XRAY_BIN")" 2>/dev/null
+    fi
+    
+    return 0
+}
+
+# Запуск сервиса
 start_service() {
-    procd_open_instance
+    # Проверяем, включен ли автозапуск
+    local auto_start
+    auto_start=$(uci -q get waytix.config.auto_start 2>/dev/null || echo "1")
+    
+    if [ "$auto_start" != "1" ]; then
+        logger -t waytix "Автозапуск отключен в настройках"
+        return 0
+    fi
+    
+    logger -t waytix "Запуск сервиса Waytix..."
+    
+    # Создаем базовую конфигурацию, если её нет
+    if ! uci -q get waytix.@config[0] >/dev/null; then
+        logger -t waytix "Инициализация конфигурации по умолчанию"
+        uci import waytix < "$CONFIG"
+        uci commit waytix
+    fi
+    
+    # Запускаем основной демон
+    procd_open_instance "$PROG"
     procd_set_param command "$PROG"
-    procd_set_param respawn
+    
+    # Параметры для procd
+    procd_set_param respawn \
+        ${respawn_threshold:-3600} \
+        ${respawn_timeout:-5} \
+        ${respawn_retry:-5}
+    
+    # Перенаправление вывода в лог
     procd_set_param stdout 1
     procd_set_param stderr 1
-    procd_close_instance
-}
-
-stop_service() {
-    killall xray 2>/dev/null
-}
-
-reload_service() {
-    stop
-    start
-}
-
-boot() {
-    # Создаем конфиг, если его нет
-    uci -q get waytix.config || uci set waytix.config=waytix
-    uci commit waytix
     
-    # Запускаем сервис
-    start
+    # Переменные окружения
+    procd_append_param env XRAY_LOCATION_CONFIG=/etc/xray
+    
+    # Ограничения ресурсов
+    procd_set_param limits core="unlimited"
+    
+    procd_close_instance
+    
+    # Даем время демону инициализироваться перед запуском Xray
+    sleep 1
+    
+    # Запускаем Xray
+    start_xray || {
+        logger -t waytix "Ошибка при запуске Xray"
+        return 1
+    }
+    
+    logger -t waytix "Сервис Waytix успешно запущен"
+}
+
+# Остановка сервиса
+stop_service() {
+    logger -t waytix "Остановка сервиса Waytix..."
+    
+    # Останавливаем Xray
+    stop_xray
+    
+    # Даем время на корректное завершение
+    sleep 1
+    
+    logger -t waytix "Сервис Waytix остановлен"
+}
+
+# Перезагрузка сервиса
+reload_service() {
+    logger -t waytix "Перезагрузка конфигурации Waytix..."
+    
+    # Останавливаем Xray
+    stop_xray
+    
+    # Перезапускаем основной демон
+    /etc/init.d/waytix restart
+    
+    # Запускаем Xray с новой конфигурацией
+    if ! start_xray; then
+        logger -t waytix "Ошибка при перезапуске Xray"
+        return 1
+    fi
+    
+    logger -t waytix "Конфигурация Waytix успешно перезагружена"
+}
+
+# Действие при загрузке системы
+boot() {
+    # Проверяем наличие необходимых каталогов
+    mkdir -p /etc/xray /var/log/xray
+    
+    # Устанавливаем права доступа
+    chmod 750 /etc/waytix
+    chmod 600 /etc/waytix/*.sh 2>/dev/null
+    
+    # Проверяем наличие конфигурации
+    if [ ! -f "$CONFIG" ]; then
+        logger -t waytix "Конфигурационный файл не найден, создаем по умолчанию"
+        cp /rom/etc/config/waytix "$CONFIG" 2>/dev/null || \
+        uci import waytix < /dev/null
+        uci commit waytix
+    fi
+    
+    # Запускаем сервис, если включен автозапуск
+    local auto_start
+    auto_start=$(uci -q get waytix.config.auto_start 2>/dev/null || echo "1")
+    
+    if [ "$auto_start" = "1" ]; then
+        logger -t waytix "Автозапуск сервиса Waytix..."
+        /etc/init.d/waytix enable
+        /etc/init.d/waytix start
+    fi
 }

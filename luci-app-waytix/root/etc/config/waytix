@@ -1,6 +1,70 @@
+# Основные настройки Waytix
 config waytix 'config'
+    # Ссылка на подписку vless
     option sub_link ''
-    list servers ''
+    
+    # Выбранный сервер (ID из секции server)
     option selected_server ''
+    
+    # Автозапуск при загрузке (1 - включен, 0 - выключен)
+    option auto_start '1'
+    
+    # Режим отладки (1 - включен, 0 - выключен)
+    option debug '0'
 
-# Секция для хранения серверов будет добавляться автоматически
+# Секции серверов будут добавляться автоматически при загрузке подписки
+# Пример секции сервера:
+# config server 'server1'
+#     option name 'Сервер 1'
+#     option url 'vless://...'
+#     option address 'example.com'
+#     option port '443'
+#     option user_id '...'
+#     option flow 'xtls-rprx-vision'
+#     option encryption 'none'
+#     option security 'tls'
+#     option fingerprint 'chrome'
+#     option public_key '...'
+#     option short_id ''
+#     option spider_y '0'
+
+# Правила маршрутизации
+config routing 'rules'
+    # Перенаправлять DNS-запросы через VPN (1 - включить, 0 - выключить)
+    option dns_through_vpn '1'
+    
+    # Обход локальных сетей (1 - включить, 0 - выключить)
+    option bypass_private '1'
+    
+    # Обход кириллических доменов (1 - включить, 0 - выключить)
+    option bypass_cyrillic '1'
+
+# Настройки Xray
+config xray 'settings'
+    # Уровень логирования (debug, info, warning, error, none)
+    option loglevel 'warning'
+    
+    # Порт для API (если нужно)
+    option api_port '10085'
+    
+    # Включить статистику (1 - включить, 0 - выключить)
+    option enable_stats '1'
+
+# Настройки DNS
+config dns 'settings'
+    # DNS-серверы (через запятую)
+    option servers '1.1.1.1, 8.8.8.8, 1.0.0.1, 8.8.4.4'
+    
+    # Включить DNS через TCP (1 - включить, 0 - выключить)
+    option tcp_dns '1'
+
+# Настройки мониторинга
+config monitoring 'status'
+    # Включить мониторинг трафика (1 - включить, 0 - выключить)
+    option enable_traffic '1'
+    
+    # Интервал обновления статистики (в секундах)
+    option update_interval '10'
+    
+    # Сохранять историю трафика (1 - включить, 0 - выключить)
+    option save_history '1'

@@ -2,203 +2,478 @@
 
 <div class="cbi-map">
     <div class="cbi-section">
-        <h3><%:Waytix VPN%></h3>
+        <h2><%:Шарманка 3000%></h2>
         
-        <div class="cbi-section-node">
-            <div class="table">
-                <div class="tr">
-                    <div class="td left" width="33%"><%:Ссылка на подписку:%></div>
-                    <div class="td left">
-                        <input type="text" id="sub-link" class="cbi-input-text" style="width: 300px" 
-                               value="<%=luci.model.uci.cursor():get('waytix', 'config', 'sub_link') or ''%>" />
-                        <button id="btn-update-servers" class="cbi-button cbi-button-apply"><%:Обновить%></button>
-                        <div id="update-status" class="cbi-value-description" style="display: inline-block; margin-left: 10px"></div>
+        <div class="cbi-section">
+            <h3><%:Настройки подписки%></h3>
+            <div class="cbi-section-node">
+                <div class="table">
+                    <div class="tr">
+                        <div class="td left" width="33%"><%:Ссылка на подписку:%></div>
+                        <div class="td left">
+                            <div class="input-group" style="display: flex; max-width: 600px">
+                                <input type="text" id="sub-link" class="cbi-input-text" style="flex-grow: 1" 
+                                       placeholder="https://example.com/subscription" 
+                                       value="<%=luci.model.uci.cursor():get('waytix', 'config', 'sub_link') or ''%>" />
+                                <button id="btn-update-servers" class="cbi-button cbi-button-apply" style="margin-left: 5px">
+                                    <span class="ifacebox-head"><%:Обновить%></span>
+                                </button>
+                            </div>
+                            <div id="update-status" class="cbi-value-description" style="margin-top: 5px"></div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
         
-        <div class="cbi-section-node">
-            <div class="table">
-                <div class="tr">
-                    <div class="td left" width="33%"><%:Статус:%></div>
-                    <div class="td left">
-                        <span id="vpn-status"><em><%:Загрузка...%></em></span>
+        <div class="cbi-section">
+            <h3><%:Состояние подключения%></h3>
+            <div class="cbi-section-node">
+                <div class="table">
+                    <div class="tr">
+                        <div class="td left" width="33%"><%:Статус:%></div>
+                        <div class="td left">
+                            <span id="vpn-status"><em><%:Загрузка...%></em></span>
+                        </div>
+                    </div>
+                    <div class="tr">
+                        <div class="td left"><%:Текущий сервер:%></div>
+                        <div class="td left">
+                            <span id="current-server">-</span>
+                        </div>
+                    </div>
+                    <div class="tr">
+                        <div class="td left"><%:Трафик (входящий/исходящий):%></div>
+                        <div class="td left">
+                            <span id="traffic-stats">- / -</span>
+                        </div>
                     </div>
                 </div>
-                <div class="tr">
-                    <div class="td left"><%:Текущий сервер:%></div>
-                    <div class="td left">
-                        <span id="current-server">-</span>
-                    </div>
+                
+                <div class="cbi-page-actions" style="margin-top: 1.5em">
+                    <button class="cbi-button cbi-button-apply" id="btn-toggle">
+                        <span class="ifacebox-head"><%:Подключиться%></span>
+                    </button>
+                    <button class="cbi-button" id="btn-update">
+                        <span class="ifacebox-head"><%:Обновить список серверов%></span>
+                    </button>
                 </div>
             </div>
-            
-            <div class="cbi-page-actions" style="margin-top: 1em">
-                <button class="cbi-button cbi-button-apply" id="btn-toggle">
-                    <%:Подключиться%>
-                </button>
-                <button class="cbi-button" id="btn-update">
-                    <%:Обновить список серверов%>
-                </button>
+        </div>
+        
+        <div class="cbi-section">
+            <h3><%:Доступные серверы%></h3>
+            <div class="cbi-section-node">
+                <div id="servers-loading" class="alert-message" style="display: none">
+                    <p><%:Загрузка списка серверов...%></p>
+                </div>
+                <div id="no-servers" class="alert-message" style="display: none">
+                    <p><%:Нет доступных серверов. Загрузите подписку.%></p>
+                </div>
+                <div id="servers-list" class="table">
+                    <!-- Список серверов будет загружен динамически -->
+                </div>
             </div>
         </div>
     </div>
 </div>
 
+<style type="text/css">
+.server-item {
+    cursor: pointer;
+    padding: 8px 12px;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 5px;
+    border-radius: 3px;
+    background-color: #f9f9f9;
+}
+.server-item:hover {
+    background-color: #f0f0f0;
+}
+.server-item.active {
+    border-left: 4px solid #37b24d;
+    background-color: #f0f9f0;
+}
+.server-item .server-name {
+    font-weight: bold;
+    margin-bottom: 3px;
+}
+.server-item .server-address {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #666;
+    word-break: break-all;
+}
+.alert-message {
+    padding: 15px;
+    margin-bottom: 20px;
+    border: 1px solid #eee;
+    border-left-width: 5px;
+    border-radius: 3px;
+    background-color: #f9f9f9;
+}
+.alert-message p {
+    margin: 0;
+}
+</style>
+
 <%+themes/bootstrap/footer%>
 
 <script type="text/javascript">
 //<![CDATA[
-    'use strict';
+'use strict';
+
+var app = {
+    isConnected: false,
+    currentServer: '',
+    selectedServer: null,
+    trafficInterval: null,
+    statusInterval: null,
     
-    // Функция для обновления списка серверов
-    function updateServers() {
-        var btn = document.getElementById('btn-update-servers');
-        var statusEl = document.getElementById('update-status');
-        var subLink = document.getElementById('sub-link').value.trim();
+    // Инициализация приложения
+    init: function() {
+        this.bindEvents();
+        this.loadServers();
+        this.updateStatus();
+        this.startPolling();
+    },
+    
+    // Привязка обработчиков событий
+    bindEvents: function() {
+        // Кнопки управления
+        document.getElementById('btn-toggle')?.addEventListener('click', this.toggleConnection.bind(this));
+        document.getElementById('btn-update')?.addEventListener('click', this.updateServers.bind(this));
+        document.getElementById('btn-update-servers')?.addEventListener('click', this.saveSubscription.bind(this));
         
-        if (!subLink) {
-            statusEl.textContent = 'Введите ссылку на подписку';
-            statusEl.style.color = 'red';
-            return;
-        }
-        
-        btn.disabled = true;
-        statusEl.textContent = 'Обновление списка серверов...';
-        statusEl.style.color = 'inherit';
-        
-        // Сохраняем ссылку в конфиг
-        XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/savesub")%>', 
-            'sub_link=' + encodeURIComponent(subLink) + '&token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
-            function(xhr, status) {
-                try {
-                    var data = JSON.parse(xhr.responseText);
-                    if (data.success) {
-                        // Обновляем список серверов
-                        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/update")%>', null,
-                            function(xhr, status) {
-                                var data = JSON.parse(xhr.responseText);
-                                if (data.success) {
-                                    statusEl.textContent = 'Список серверов обновлен: ' + data.message;
-                                    statusEl.style.color = 'green';
-                                    // Перезагружаем страницу для отображения обновленного списка
-                                    window.location.reload();
-                                } else {
-                                    statusEl.textContent = 'Ошибка обновления списка серверов';
-                                    statusEl.style.color = 'red';
-                                }
-                                btn.disabled = false;
-                            }
-                        );
-                    } else {
-                        statusEl.textContent = 'Ошибка сохранения ссылки: ' + (data.message || 'Неизвестная ошибка');
-                        statusEl.style.color = 'red';
-                        btn.disabled = false;
-                    }
-                } catch (e) {
-                    console.error('Ошибка при обновлении серверов:', e);
-                    statusEl.textContent = 'Ошибка: ' + e.message;
-                    statusEl.style.color = 'red';
-                    btn.disabled = false;
-                }
+        // Обработка нажатия Enter в поле ввода ссылки
+        document.getElementById('sub-link')?.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                app.saveSubscription();
             }
-        );
-    }
+        });
+    },
     
-    // Обработчик кнопки обновления
-    document.addEventListener('DOMContentLoaded', function() {
-        var btnUpdate = document.getElementById('btn-update-servers');
-        if (btnUpdate) {
-            btnUpdate.addEventListener('click', updateServers);
-        }
+    // Запуск периодического обновления данных
+    startPolling: function() {
+        // Обновляем статус каждые 3 секунды
+        this.statusInterval = setInterval(this.updateStatus.bind(this), 3000);
         
-        // Остальные обработчики...
-        var btnToggle = document.getElementById('btn-toggle');
-        if (btnToggle) btnToggle.addEventListener('click', toggleConnection);
-        
-        // Обновляем статус каждые 5 секунд
-        updateStatus();
-        setInterval(updateStatus, 5000);
-    });
+        // Обновляем статистику трафика каждую секунду при активном подключении
+        this.trafficInterval = setInterval(this.updateTraffic.bind(this), 1000);
+    },
     
-    var isConnected = false;
-    var currentServer = '';
+    // Остановка периодического обновления
+    stopPolling: function() {
+        if (this.statusInterval) clearInterval(this.statusInterval);
+        if (this.trafficInterval) clearInterval(this.trafficInterval);
+    },
     
-    function updateStatus() {
+    // Обновление статуса подключения
+    updateStatus: function() {
         XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/status")%>', null, 
             function(xhr, status) {
                 try {
                     var data = JSON.parse(xhr.responseText);
-                    isConnected = data.running;
-                    currentServer = data.server || '-';
+                    app.isConnected = data.running;
+                    app.currentServer = data.server || '-';
                     
-                    document.getElementById('vpn-status').innerHTML = isConnected ? 
-                        '<span style="color: green"><%:Подключено%></span>' : 
-                        '<span style="color: red"><%:Отключено%></span>';
-                        
-                    document.getElementById('current-server').textContent = currentServer;
-                    
+                    // Обновляем UI
+                    var statusEl = document.getElementById('vpn-status');
+                    var serverEl = document.getElementById('current-server');
                     var btnToggle = document.getElementById('btn-toggle');
-                    if (isConnected) {
-                        btnToggle.classList.remove('cbi-button-apply');
-                        btnToggle.classList.add('cbi-button-remove');
-                        btnToggle.textContent = '<%:Отключиться%>';
-                    } else {
-                        btnToggle.classList.remove('cbi-button-remove');
-                        btnToggle.classList.add('cbi-button-apply');
-                        btnToggle.textContent = '<%:Подключиться%>';
+                    
+                    if (statusEl) {
+                        statusEl.innerHTML = app.isConnected 
+                            ? '<span style="color: #37b24d"><%:Активно%></span>' 
+                            : '<span style="color: #e03131"><%:Неактивно%></span>';
                     }
+                    
+                    if (serverEl) {
+                        serverEl.textContent = app.currentServer;
+                    }
+                    
+                    if (btnToggle) {
+                        if (app.isConnected) {
+                            btnToggle.classList.remove('cbi-button-apply');
+                            btnToggle.classList.add('cbi-button-remove');
+                            btnToggle.querySelector('.ifacebox-head').textContent = '<%:Отключиться%>';
+                        } else {
+                            btnToggle.classList.remove('cbi-button-remove');
+                            btnToggle.classList.add('cbi-button-apply');
+                            btnToggle.querySelector('.ifacebox-head').textContent = '<%:Подключиться%>';
+                        }
+                        btnToggle.disabled = false;
+                    }
+                    
+                    // Обновляем выделение сервера в списке
+                    app.updateServerSelection();
+                    
                 } catch (e) {
-                    console.error('Ошибка обновления статуса:', e);
+                    console.error('Ошибка при обновлении статуса:', e);
                 }
             }
         );
-    }
+    },
     
-    function toggleConnection() {
+    // Обновление статистики трафика
+    updateTraffic: function() {
+        if (!this.isConnected) {
+            document.getElementById('traffic-stats').textContent = '- / -';
+            return;
+        }
+        
+        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/traffic")%>', null,
+            function(xhr, status) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    var el = document.getElementById('traffic-stats');
+                    if (el && data.formatted) {
+                        el.textContent = data.formatted.down + ' / ' + data.formatted.up;
+                    }
+                } catch (e) {
+                    console.error('Ошибка при обновлении статистики трафика:', e);
+                }
+            }
+        );
+    },
+    
+    // Загрузка списка серверов
+    loadServers: function() {
+        var container = document.getElementById('servers-list');
+        var loadingEl = document.getElementById('servers-loading');
+        var noServersEl = document.getElementById('no-servers');
+        
+        if (loadingEl) loadingEl.style.display = 'block';
+        if (container) container.innerHTML = '';
+        
+        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/servers")%>', null,
+            function(xhr, status) {
+                try {
+                    var servers = JSON.parse(xhr.responseText);
+                    
+                    if (loadingEl) loadingEl.style.display = 'none';
+                    
+                    if (!servers || servers.length === 0) {
+                        if (noServersEl) noServersEl.style.display = 'block';
+                        return;
+                    }
+                    
+                    if (noServersEl) noServersEl.style.display = 'none';
+                    
+                    // Создаем список серверов
+                    var html = '';
+                    for (var i = 0; i < servers.length; i++) {
+                        var server = servers[i];
+                        var isActive = server.selected ? ' active' : '';
+                        
+                        html += '<div class="server-item' + isActive + '" data-id="' + 
+                                server.id + '" data-url="' + 
+                                (server.url || '') + '">';
+                        html += '  <div class="server-name">' + (server.name || 'Безымянный сервер') + '</div>';
+                        if (server.url) {
+                            html += '  <div class="server-address" title="' + server.url + '">' + 
+                                    server.url.substring(0, 60) + (server.url.length > 60 ? '...' : '') + 
+                                    '</div>';
+                        }
+                        html += '</div>';
+                    }
+                    
+                    if (container) {
+                        container.innerHTML = html;
+                        
+                        // Добавляем обработчики клика по серверам
+                        var items = container.getElementsByClassName('server-item');
+                        for (var i = 0; i < items.length; i++) {
+                            items[i].addEventListener('click', function() {
+                                app.selectServer(this.getAttribute('data-id'));
+                            });
+                        }
+                    }
+                    
+                } catch (e) {
+                    console.error('Ошибка при загрузке списка серверов:', e);
+                    if (loadingEl) loadingEl.style.display = 'none';
+                    if (noServersEl) noServersEl.style.display = 'block';
+                }
+            }
+        );
+    },
+    
+    // Обновление выделения выбранного сервера
+    updateServerSelection: function() {
+        var items = document.querySelectorAll('.server-item');
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var isActive = item.getAttribute('data-id') === this.currentServer;
+            
+            if (isActive) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        }
+    },
+    
+    // Выбор сервера
+    selectServer: function(serverId) {
+        if (!serverId) return;
+        
+        var btn = document.getElementById('btn-toggle');
+        if (btn) btn.disabled = true;
+        
+        XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/select")%>', 
+            'server=' + encodeURIComponent(serverId) + 
+            '&token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
+            function(xhr, status) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        app.currentServer = serverId;
+                        app.updateServerSelection();
+                        app.updateStatus();
+                    } else {
+                        console.error('Ошибка при выборе сервера:', data.error || 'Неизвестная ошибка');
+                    }
+                } catch (e) {
+                    console.error('Ошибка при обработке ответа:', e);
+                } finally {
+                    if (btn) btn.disabled = false;
+                }
+            }
+        );
+    },
+    
+    // Переключение подключения
+    toggleConnection: function() {
         var btn = this;
         btn.disabled = true;
         
         XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/toggle")%>', 
             'token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
             function(xhr, status) {
-                btn.disabled = false;
-                updateStatus();
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (!data.success) {
+                        console.error('Ошибка при переключении подключения:', data.error || 'Неизвестная ошибка');
+                    }
+                    app.updateStatus();
+                } catch (e) {
+                    console.error('Ошибка при обработке ответа:', e);
+                } finally {
+                    btn.disabled = false;
+                }
             }
         );
-    }
+    },
     
-    function updateServers() {
+    // Обновление списка серверов
+    updateServers: function() {
         var btn = this;
         btn.disabled = true;
         
         XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/update")%>', 
             'token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
             function(xhr, status) {
-                btn.disabled = false;
-                var data = JSON.parse(xhr.responseText);
-                if (data.success) {
-                    alert('<%:Список серверов успешно обновлен%>');
-                } else {
-                    alert('<%:Ошибка при обновлении списка серверов%>');
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        app.loadServers();
+                        app.showNotification('Список серверов успешно обновлен', 'success');
+                    } else {
+                        console.error('Ошибка при обновлении списка серверов:', data.error || 'Неизвестная ошибка');
+                        app.showNotification('Ошибка при обновлении списка серверов', 'error');
+                    }
+                } catch (e) {
+                    console.error('Ошибка при обработке ответа:', e);
+                    app.showNotification('Ошибка при обработке ответа', 'error');
+                } finally {
+                    btn.disabled = false;
                 }
             }
         );
-    }
+    },
     
-    // Инициализация
-    document.addEventListener('DOMContentLoaded', function() {
-        var btnToggle = document.getElementById('btn-toggle');
-        var btnUpdate = document.getElementById('btn-update');
+    // Сохранение ссылки на подписку
+    saveSubscription: function() {
+        var btn = document.getElementById('btn-update-servers');
+        var statusEl = document.getElementById('update-status');
+        var subLink = document.getElementById('sub-link').value.trim();
         
-        if (btnToggle) btnToggle.addEventListener('click', toggleConnection);
-        if (btnUpdate) btnUpdate.addEventListener('click', updateServers);
+        if (!subLink) {
+            statusEl.textContent = 'Введите ссылку на подписку';
+            statusEl.style.color = '#e03131';
+            return;
+        }
         
-        // Обновляем статус каждые 5 секунд
-        updateStatus();
-        setInterval(updateStatus, 5000);
-    });
+        if (btn) btn.disabled = true;
+        if (statusEl) {
+            statusEl.textContent = 'Сохранение ссылки...';
+            statusEl.style.color = 'inherit';
+        }
+        
+        XHR.post('<%=luci.dispatcher.build_url("admin/services/waytix/savesub")%>', 
+            'sub_link=' + encodeURIComponent(subLink) + 
+            '&token=' + encodeURIComponent('<%=luci.http.getenv("HTTP_X_CSRF_TOKEN")%>'),
+            function(xhr, status) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        if (statusEl) {
+                            statusEl.textContent = 'Ссылка на подписку сохранена';
+                            statusEl.style.color = '#2f9e44';
+                        }
+                        app.updateServers();
+                    } else {
+                        if (statusEl) {
+                            statusEl.textContent = 'Ошибка: ' + (data.error || 'Неизвестная ошибка');
+                            statusEl.style.color = '#e03131';
+                        }
+                    }
+                } catch (e) {
+                    console.error('Ошибка при сохранении подписки:', e);
+                    if (statusEl) {
+                        statusEl.textContent = 'Ошибка: ' + e.message;
+                        statusEl.style.color = '#e03131';
+                    }
+                } finally {
+                    if (btn) btn.disabled = false;
+                }
+            }
+        );
+    },
+    
+    // Показать уведомление
+    showNotification: function(message, type) {
+        // Используем встроенные уведомления LuCI
+        var note = document.createElement('div');
+        note.className = 'alert-message ' + (type || 'info');
+        note.innerHTML = '<p>' + message + '</p>';
+        
+        var container = document.querySelector('.cbi-map');
+        if (container) {
+            container.insertBefore(note, container.firstChild);
+            
+            // Автоматически скрываем уведомление через 5 секунд
+            setTimeout(function() {
+                note.style.opacity = '0';
+                note.style.transition = 'opacity 0.5s';
+                setTimeout(function() {
+                    container.removeChild(note);
+                }, 500);
+            }, 5000);
+        }
+    }
+};
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    app.init();
+});
+
+// Очистка при размонтировании страницы
+window.addEventListener('unload', function() {
+    app.stopPolling();
+});
 //]]>
 </script>
             if (xhr.readyState === 4) {
