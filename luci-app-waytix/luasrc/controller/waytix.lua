@@ -216,11 +216,14 @@ local function get_xray_stats()
     if uci:get(UCI_CONFIG, "xray", "enable_stats") ~= "0" then
         local api_port = uci:get(UCI_CONFIG, "xray", "api_port") or "10085"
         local cmd = string.format(
-            "curl -s http://127.0.0.1:%s/stats -d '{\"pattern\":\"\",\"reset\":false}' 2>/dev/null || \
-             curl -s http://127.0.0.1:%s/stats -d '\\
-             {\\\"name\\\": \\\"inbound>>proxy>>>traffic>>>downlink\\\", \\\"reset\\\": false}, \\
-             {\\\"name\\\": \\\"inbound>>proxy>>>traffic>>>uplink\\\", \\\"reset\\\": false}, \\
-             {\\\"name\\\": \\\"inbound>>proxy>>>traffic>>>>connection\\\", \\\"reset\\\": false}'",
+            'curl -s http://127.0.0.1:%s/stats -d "{\\\"pattern\\\":\\\"\\\",\\\"reset\\\":false}" 2>/dev/null || ' ..
+            'curl -s http://127.0.0.1:%s/stats -d ' .. [=[
+            [
+                {\"name\": \"inbound>>proxy>>>traffic>>>downlink\", \"reset\": false},
+                {\"name\": \"inbound>>proxy>>>traffic>>>uplink\", \"reset\": false},
+                {\"name\": \"inbound>>proxy>>>traffic>>>>connection\", \"reset\": false}
+            ]
+            ]=],
             api_port, api_port
         )
         
