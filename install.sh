@@ -119,26 +119,22 @@ fi
 fix_uci_config() {
     echo "Fixing UCI configuration..."
     
-    # Backup current config if exists
-    if [ -f "/etc/config/waytix" ]; then
-        cp "/etc/config/waytix" "/etc/config/waytix.bak"
+    # Download the fix script
+    if ! wget -q "$REPO_URL/fix_uci_config.sh" -O "/tmp/fix_uci_config.sh"; then
+        echo "Warning: Failed to download UCI fix script"
+        return 1
     fi
     
-    # Create or fix config
-    uci -q delete waytix.@config[0] 2>/dev/null || true
-    uci -q delete waytix.@servers[0] 2>/dev/null
+    # Make it executable
+    chmod +x "/tmp/fix_uci_config.sh"
     
-    # Add default config
-    if ! uci -q get waytix.@config[0] >/dev/null; then
-        uci add waytix config
-        uci set waytix.@config[0].enabled='0'
-        uci set waytix.@config[0].current_server=''
-        uci commit waytix
-    fi
-    
-    # Add empty servers section if not exists
-    if ! uci -q get waytix.@servers[0] >/dev/null; then
-        uci add waytix servers
+    # Run the fix script
+    if "/tmp/fix_uci_config.sh"; then
+        echo "UCI configuration fixed successfully"
+        return 0
+    else
+        echo "Error: Failed to fix UCI configuration"
+        return 1
         uci commit waytix
     fi
 }
