@@ -2,12 +2,35 @@
 
 Полностью автоматизированное решение для развертывания VPN-клиента на устройствах с OpenWrt.
 
-## Подготовка к развертыванию
+## Установка на устройство с OpenWrt
+
+1. Подключитесь к устройству по SSH
+2. Выполните команду для установки:
+
+```bash
+opkg update
+opkg install wget unzip
+wget -O /tmp/waytix.zip https://github.com/soloviev6310/waytix/archive/refs/heads/main.zip
+unzip /tmp/waytix.zip -d /tmp/
+cd /tmp/waytix-main
+chmod +x install.sh
+./install.sh
+```
+
+Или одной командой:
+
+```bash
+opkg update && opkg install wget unzip && wget -O /tmp/waytix.zip https://github.com/soloviev6310/waytix/archive/refs/heads/main.zip && unzip /tmp/waytix.zip -d /tmp/ && cd /tmp/waytix-main && chmod +x install.sh && ./install.sh
+```
+
+## Разработка и сборка
+
+Для разработки и сборки пакетов:
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone <ваш-репозиторий>
-   cd waytix-router
+   git clone https://github.com/soloviev6310/waytix.git
+   cd waytix
    ```
 
 2. Скачайте бинарники Xray для всех архитектур:
@@ -16,32 +39,11 @@
    ./download-xray-binaries.sh
    ```
 
-3. Создайте пакет для развертывания:
+3. Соберите пакеты:
    ```bash
-   chmod +x create-deploy-package.sh
-   ./create-deploy-package.sh
+   chmod +x build-packages.sh
+   ./build-packages.sh
    ```
-
-4. Отредактируйте `upload-to-server.sh` и укажите данные вашего сервера.
-
-5. Загрузите файлы на сервер:
-   ```bash
-   ./upload-to-server.sh
-   ```
-
-## Установка на устройство
-
-Для установки на устройство с OpenWrt выполните:
-
-```bash
-wget -O - https://ваш-сервер.com/waytix/waytix-install | sh
-```
-
-Или в одну строку (если wget недоступен):
-
-```bash
-opkg update && opkg install wget && wget -O - https://ваш-сервер.com/waytix/waytix-install | sh
-```
 
 ## Обновление
 
