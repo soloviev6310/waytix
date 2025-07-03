@@ -1,38 +1,53 @@
 #!/bin/sh
 
+# Функция для вывода ошибок и выхода
+error_exit() {
+    echo "ОШИБКА: $1" >&2
+    exit 1
+}
+
 # Проверяем, что скрипт запущен от root
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Этот скрипт должен быть запущен от имени root"
-    exit 1
+    error_exit "Этот скрипт должен быть запущен от имени root"
 fi
 
-# Обновляем список пакетов и устанавливаем необходимые зависимости
-echo "Обновление списка пакетов и установка зависимостей..."
-opkg update
-opkg install \
-    luci \
-    luci-compat \
-    luci-lib-ipkg \
-    luci-lib-nixio \
-    curl \
-    jq \
-    unzip \
-    coreutils-base64 \
-    openssl-util \
-    ip-full \
-    iptables-mod-tproxy \
-    kmod-ipt-tproxy \
-    ip6tables-mod-nat \
-    kmod-ipt-nat6 \
-    luci-proto-ipv6 \
-    luci-theme-bootstrap
+# Создаем лог-файл
+LOG_FILE="/tmp/waytix-setup.log"
+echo "=== Начало установки Waytix VPN ===" > "$LOG_FILE"
+exec 2>>"$LOG_FILE"
+
+# Функция для логирования
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+log "Начало установки..."
+
+# Обновляем список пакетов
+log "Обновление списка пакетов..."
+if ! opkg update >> "$LOG_FILE" 2>&1; then
+    log "Ошибка при обновлении списка пакетов"
+    error_exit "Не удалось обновить список пакетов. Проверьте подключение к интернету."
+fi
+
+# Устанавливаем необходимые пакеты
+log "Установка зависимостей..."
+for pkg in curl jq unzip coreutils-base64 openssl-util ip-full iptables-mod-tproxy kmod-ipt-tproxy ip6tables-mod-nat kmod-ipt-nat6 luci-proto-ipv6 luci-theme-bootstrap; do
+    if ! opkg list-installed | grep -q "^$pkg "; then
+        log "Установка $pkg..."
+        if ! opkg install "$pkg" >> "$LOG_FILE" 2>&1; then
+            log "Ошибка при установке $pkg"
+            error_exit "Не удалось установить пакет $pkg"
+        fi
+    fi
+done
 
 # Создаем директорию для временных файлов
 TMP_DIR="/tmp/waytix-setup"
-mkdir -p "$TMP_DIR"
+mkdir -p "$TMP_DIR" || error_exit "Не удалось создать временную директорию"
 
 # Устанавливаем Xray
-echo "Установка Xray..."
+log "Установка Xray..."
 XRAY_VERSION="1.8.4"
 XRAY_ARCH=""
 
@@ -44,22 +59,27 @@ case "$(uname -m)" in
     "armv7" | "armv7l") XRAY_ARCH="arm32-v7a" ;;
     "mips") XRAY_ARCH="mips32" ;;
     "mips64") XRAY_ARCH="mips64" ;;
-    *) echo "Неподдерживаемая архитектура: $(uname -m)"; exit 1 ;;
+    *) error_exit "Неподдерживаемая архитектура: $(uname -m)" ;;
 esac
 
 XRAY_PKG="Xray-linux-${XRAY_ARCH}.zip"
 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${XRAY_PKG}"
 
 if ! curl -L "$XRAY_URL" -o "$TMP_DIR/xray.zip"; then
-    echo "Ошибка при скачивании Xray"
-    exit 1
+    error_exit "Ошибка при скачивании Xray"
 fi
 
-unzip -o "$TMP_DIR/xray.zip" -d "$TMP_DIR/xray"
-install -m 755 "$TMP_DIR/xray/xray" /usr/bin/
-install -d /etc/xray
+if ! unzip -o "$TMP_DIR/xray.zip" -d "$TMP_DIR/xray"; then
+    error_exit "Ошибка при распаковке Xray"
+fi
+
+# Устанавливаем Xray
+install -d /usr/bin || error_exit "Не удалось создать директорию /usr/bin"
+install -m 755 "$TMP_DIR/xray/xray" /usr/bin/ || error_exit "Не удалось установить Xray"
+install -d /etc/xray || error_exit "Не удалось создать директорию /etc/xray"
 
 # Создаем базовую конфигурацию Xray
+log "Создание конфигурации Xray..."
 cat > /etc/xray/config.json << 'EOL'
 {
     "log": {
@@ -74,53 +94,24 @@ cat > /etc/xray/config.json << 'EOL'
                 "udp": true
             },
             "tag": "socks-in"
-        },
-        {
-            "port": 1081,
-            "protocol": "http",
-            "settings": {
-                "timeout": 300
-            },
-            "tag": "http-in"
         }
     ],
     "outbounds": [
         {
             "protocol": "freedom",
             "tag": "direct"
-        },
-        {
-            "protocol": "blackhole",
-            "tag": "blocked"
         }
-    ],
-    "routing": {
-        "domainStrategy": "AsIs",
-        "rules": [
-            {
-                "type": "field",
-                "ip": [
-                    "geoip:private"
-                ],
-                "outboundTag": "direct"
-            },
-            {
-                "type": "field",
-                "domain": [
-                    "geosite:category-ads-all"
-                ],
-                "outboundTag": "blocked"
-            }
-        ]
-    }
+    ]
 }
 EOL
 
 # Создаем конфигурацию приложения
-mkdir -p /etc/waytix
+log "Создание конфигурации приложения..."
+mkdir -p /etc/waytix || error_exit "Не удалось создать директорию /etc/waytix"
+
 cat > /etc/config/waytix << 'EOL'
 config waytix 'config'
-    option enabled '1'
+    option enabled '0'
     option sub_link ''
     option selected_server ''
 
@@ -134,25 +125,41 @@ config servers
     option host 'example.com'
 EOL
 
-# Устанавливаем скрипты
+# Создаем скрипты
+log "Создание скриптов..."
+mkdir -p /etc/waytix
+
+cat > /etc/waytix/status.sh << 'EOL'
+#!/bin/sh
+. /lib/functions.sh
+config_load waytix
+config_get enabled config enabled
+[ "$enabled" = "1" ] && echo "enabled" || echo "disabled"
+EOL
+
 cat > /etc/waytix/connect.sh << 'EOL'
 #!/bin/sh
+. /lib/functions.sh
 
-. /etc/waytix/status.sh
+connect_vpn() {
+    echo "Подключение к VPN..."
+    # Здесь будет логика подключения
+}
 
 if [ "$1" = "--daemon" ]; then
     while true; do
         connect_vpn
         sleep 60
-done
+    done
 else
     connect_vpn
 fi
 EOL
 
-chmod +x /etc/waytix/connect.sh
+chmod +x /etc/waytix/*.sh
 
 # Создаем init скрипт
+log "Создание init скрипта..."
 cat > /etc/init.d/waytix << 'EOL'
 #!/bin/sh /etc/rc.common
 
@@ -160,10 +167,12 @@ START=99
 STOP=10
 
 start() {
+    echo "Запуск Waytix VPN..."
     /etc/waytix/connect.sh --daemon &
 }
 
 stop() {
+    echo "Остановка Waytix VPN..."
     killall xray 2>/dev/null
 }
 
@@ -176,49 +185,19 @@ EOL
 
 chmod +x /etc/init.d/waytix
 
-# Включаем и запускаем сервис
-/etc/init.d/waytix enable
-/etc/init.d/waytix start
-
-# Настраиваем брандмауэр
-cat > /etc/firewall.waytix << 'EOL'
-# Правила для Waytix
-config include
-    option path '/etc/firewall.waytix'
-
-config zone
-    option name 'vpn'
-    option input 'ACCEPT'
-    option output 'ACCEPT'
-    option forward 'REJECT'
-    option masq '1'
-    option mtu_fix '1'
-
-config forwarding
-    option src 'lan'
-    option dest 'vpn'
-EOL
-
-# Добавляем загрузку правил в конфиг брандмауэра
-if ! grep -q '/etc/firewall.waytix' /etc/config/firewall; then
-    echo "include '/etc/firewall.waytix'" >> /etc/config/firewall
-fi
-
-# Перезапускаем брандмауэр
-/etc/init.d/firewall restart
-
-echo ""
-echo "========================================"
-echo "Настройка роутера завершена успешно!"
-echo ""
-echo "Для завершения настройки:"
-echo "1. Откройте веб-интерфейс по адресу http://192.168.1.1"
-echo "2. Перейдите в раздел Сервисы -> Шарманка 3000"
-echo "3. Введите ссылку на подписку и настройте подключение"
-echo "========================================"
-echo ""
-
 # Очищаем временные файлы
+log "Очистка временных файлов..."
 rm -rf "$TMP_DIR"
+
+log ""
+log "========================================"
+log "Установка завершена успешно!"
+log ""
+log "Для завершения настройки:"
+log "1. Откройте веб-интерфейс по адресу http://192.168.1.1"
+log "2. Перейдите в раздел Сервисы -> Шарманка 3000"
+log "3. Включите и настройте подключение"
+log "========================================"
+log ""
 
 exit 0
