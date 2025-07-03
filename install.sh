@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -e  # Exit on any error
+
 # Проверяем, что скрипт запущен от root
 if [ "$(id -u)" -ne 0 ]; then
     echo "Этот скрипт должен быть запущен от имени root"
@@ -65,36 +67,57 @@ for dir in controller model/cbi/waytix view; do
 done
 
 # Копируем файлы
-cp -r luci-app-waytix/luasrc/controller/* "${INSTALL_DIR}/controller/"
-cp -r luci-app-waytix/luasrc/model/cbi/waytix "${INSTALL_DIR}/model/cbi/"
-cp -r luci-app-waytix/luasrc/view/waytix "${INSTALL_DIR}/view/"
+if [ -d "luci-app-waytix/luasrc/controller" ]; then
+    cp -r luci-app-waytix/luasrc/controller/* "${INSTALL_DIR}/controller/"
+fi
+
+if [ -d "luci-app-waytix/luasrc/model/cbi/waytix" ]; then
+    mkdir -p "${INSTALL_DIR}/model/cbi/"
+    cp -r luci-app-waytix/luasrc/model/cbi/waytix "${INSTALL_DIR}/model/cbi/"
+fi
+
+if [ -d "luci-app-waytix/luasrc/view/waytix" ]; then
+    mkdir -p "${INSTALL_DIR}/view/"
+    cp -r luci-app-waytix/luasrc/view/waytix "${INSTALL_DIR}/view/"
+fi
 
 # Устанавливаем системные файлы
 mkdir -p /etc/waytix
-cp luci-app-waytix/root/etc/waytix/*.sh /etc/waytix/
-chmod +x /etc/waytix/*.sh
+if [ -d "luci-app-waytix/root/etc/waytix" ]; then
+    cp luci-app-waytix/root/etc/waytix/*.sh /etc/waytix/ || true
+    chmod +x /etc/waytix/*.sh 2>/dev/null || true
+fi
 
 # Устанавливаем init скрипт
-cp luci-app-waytix/root/etc/init.d/waytix /etc/init.d/
-chmod +x /etc/init.d/waytix
+if [ -f "luci-app-waytix/root/etc/init.d/waytix" ]; then
+    cp luci-app-waytix/root/etc/init.d/waytix /etc/init.d/
+    chmod +x /etc/init.d/waytix
+fi
 
 # Устанавливаем демон
 mkdir -p /usr/sbin
-cp luci-app-waytix/root/usr/sbin/waytixd /usr/sbin/
-chmod +x /usr/sbin/waytixd
+if [ -f "luci-app-waytix/root/usr/sbin/waytixd" ]; then
+    cp luci-app-waytix/root/usr/sbin/waytixd /usr/sbin/
+    chmod +x /usr/sbin/waytixd
+fi
 
 # Устанавливаем конфигурацию
-if [ ! -f /etc/config/waytix ]; then
+if [ ! -f /etc/config/waytix ] && [ -f "luci-app-waytix/root/etc/config/waytix" ]; then
+    mkdir -p /etc/config
     cp luci-app-waytix/root/etc/config/waytix /etc/config/
 fi
 
 # Добавляем права доступа
-mkdir -p /usr/share/rpcd/acl.d
-cp luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json /usr/share/rpcd/acl.d/
+if [ -f "luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" ]; then
+    mkdir -p /usr/share/rpcd/acl.d
+    cp luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json /usr/share/rpcd/acl.d/
+fi
 
 # Включаем и запускаем сервис
-/etc/init.d/waytix enable
-/etc/init.d/waytix start
+if [ -f "/etc/init.d/waytix" ]; then
+    /etc/init.d/waytix enable
+    /etc/init.d/waytix start
+fi
 
 # Очищаем временные файлы
 rm -rf "$TMP_DIR"
