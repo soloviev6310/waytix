@@ -166,7 +166,7 @@ function action_savesub()
     local sub_link = http.formvalue("sub_link")
     if not sub_link then
         return json_response({success = false, error = "Не указана ссылка на подписку"}, 400)
-    }
+    end
     
     -- Сохраняем ссылку в конфиг
     uci:set(UCI_CONFIG, "config", "sub_link", sub_link)
