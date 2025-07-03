@@ -62,56 +62,52 @@ echo "Устанавливаем luci-app-waytix..."
 INSTALL_DIR="/usr/lib/lua/luci"
 
 # Создаем директории
-for dir in controller model/cbi/waytix view; do
-    mkdir -p "${INSTALL_DIR}/${dir}"
-done
+mkdir -p "${INSTALL_DIR}/controller"
+mkdir -p "${INSTALL_DIR}/model/cbi/waytix"
+mkdir -p "${INSTALL_DIR}/view/waytix"
 
-# Копируем файлы
-if [ -d "luci-app-waytix/luasrc/controller" ]; then
-    cp -r luci-app-waytix/luasrc/controller/* "${INSTALL_DIR}/controller/"
-fi
+# Копируем файлы контроллера
+cp luci-app-waytix/luasrc/controller/waytix.lua "${INSTALL_DIR}/controller/"
 
-if [ -d "luci-app-waytix/luasrc/model/cbi/waytix" ]; then
-    mkdir -p "${INSTALL_DIR}/model/cbi/"
-    cp -r luci-app-waytix/luasrc/model/cbi/waytix "${INSTALL_DIR}/model/cbi/"
-fi
+# Копируем модель
+cp luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua "${INSTALL_DIR}/model/cbi/waytix/"
 
-if [ -d "luci-app-waytix/luasrc/view/waytix" ]; then
-    mkdir -p "${INSTALL_DIR}/view/"
-    cp -r luci-app-waytix/luasrc/view/waytix "${INSTALL_DIR}/view/"
-fi
+# Копируем шаблоны
+cp luci-app-waytix/luasrc/view/waytix/*.htm "${INSTALL_DIR}/view/waytix/"
 
 # Устанавливаем системные файлы
 mkdir -p /etc/waytix
-if [ -d "luci-app-waytix/root/etc/waytix" ]; then
-    cp luci-app-waytix/root/etc/waytix/*.sh /etc/waytix/ || true
-    chmod +x /etc/waytix/*.sh 2>/dev/null || true
-fi
+cp luci-app-waytix/root/etc/waytix/*.sh /etc/waytix/
+chmod +x /etc/waytix/*.sh
+
+# Устанавливаем конфигурацию Xray
+mkdir -p /etc/xray
+cp luci-app-waytix/root/etc/xray/config.json /etc/xray/
 
 # Устанавливаем init скрипт
-if [ -f "luci-app-waytix/root/etc/init.d/waytix" ]; then
-    cp luci-app-waytix/root/etc/init.d/waytix /etc/init.d/
-    chmod +x /etc/init.d/waytix
-fi
+cp luci-app-waytix/root/etc/init.d/waytix /etc/init.d/
+chmod +x /etc/init.d/waytix
 
 # Устанавливаем демон
 mkdir -p /usr/sbin
-if [ -f "luci-app-waytix/root/usr/sbin/waytixd" ]; then
-    cp luci-app-waytix/root/usr/sbin/waytixd /usr/sbin/
-    chmod +x /usr/sbin/waytixd
-fi
+cp luci-app-waytix/root/usr/sbin/waytixd /usr/sbin/
+chmod +x /usr/sbin/waytixd
 
 # Устанавливаем конфигурацию
-if [ ! -f /etc/config/waytix ] && [ -f "luci-app-waytix/root/etc/config/waytix" ]; then
-    mkdir -p /etc/config
-    cp luci-app-waytix/root/etc/config/waytix /etc/config/
-fi
+mkdir -p /etc/config
+cp luci-app-waytix/root/etc/config/waytix /etc/config/
 
 # Добавляем права доступа
-if [ -f "luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json" ]; then
-    mkdir -p /usr/share/rpcd/acl.d
-    cp luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json /usr/share/rpcd/acl.d/
-fi
+mkdir -p /usr/share/rpcd/acl.d
+cp luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.json /usr/share/rpcd/acl.d/
+
+# Устанавливаем RPCD скрипт
+mkdir -p /usr/libexec/rpcd
+cp luci-app-waytix/root/usr/libexec/rpcd/waytix /usr/libexec/rpcd/
+chmod +x /usr/libexec/rpcd/waytix
+
+# Устанавливаем крон-задачу
+cp luci-app-waytix/root/etc/crontabs/root /etc/crontabs/
 
 # Включаем и запускаем сервис
 if [ -f "/etc/init.d/waytix" ]; then
