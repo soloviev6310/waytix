@@ -2,26 +2,32 @@
 
 Полностью автоматизированное решение для развертывания VPN-клиента на устройствах с OpenWrt.
 
-## Установка на устройство с OpenWrt
+## Первоначальная настройка роутера
 
-1. Подключитесь к устройству по SSH
-2. Выполните команду для установки:
+1. Подключитесь к роутеру по SSH
+2. Выполните команды для настройки с нуля:
 
 ```bash
+# Установка необходимых пакетов
 opkg update
 opkg install wget unzip
-wget -O /tmp/waytix.zip https://github.com/soloviev6310/waytix/archive/refs/heads/main.zip
-unzip /tmp/waytix.zip -d /tmp/
-cd /tmp/waytix-main
-chmod +x install.sh
-./install.sh
+
+# Скачивание и запуск скрипта настройки
+wget -O /tmp/setup-router.sh https://raw.githubusercontent.com/soloviev6310/waytix/main/setup-router.sh
+chmod +x /tmp/setup-router.sh
+/tmp/setup-router.sh
 ```
 
 Или одной командой:
 
 ```bash
-opkg update && opkg install wget unzip && wget -O /tmp/waytix.zip https://github.com/soloviev6310/waytix/archive/refs/heads/main.zip && unzip /tmp/waytix.zip -d /tmp/ && cd /tmp/waytix-main && chmod +x install.sh && ./install.sh
+opkg update && opkg install wget unzip && wget -O /tmp/setup-router.sh https://raw.githubusercontent.com/soloviev6310/waytix/main/setup-router.sh && chmod +x /tmp/setup-router.sh && /tmp/setup-router.sh
 ```
+
+После выполнения скрипта:
+1. Откройте веб-интерфейс по адресу http://192.168.1.1
+2. Перейдите в раздел "Сервисы" -> "Шарманка 3000"
+3. Введите ссылку на подписку и настройте подключение
 
 ## Разработка и сборка
 
