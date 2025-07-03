@@ -1,56 +1,115 @@
-<%-
-    local sys = require "luci.sys"
-    local is_running = sys.call("pidof xray >/dev/null") == 0
--%>
+<%+ "header" %>
 
-<div class="cbi-section">
-    <div class="cbi-section-node">
-        <div class="table" style="margin: 0">
-            <div class="tr">
-                <div class="td" style="padding: 0.5em 0">
-                    <% if is_running then -%>
-                        <button type="button" class="cbi-button cbi-button-remove" onclick="disconnectVPN()">
-                            <%= translate("Отключиться") %>
-                        </button>
-                    <% else -%>
-                        <button type="button" class="cbi-button cbi-button-apply" onclick="connectVPN()">
-                            <%= translate("Подключиться") %>
-                        </button>
-                    <% end -%>
+<div class="cbi-map">
+    <div class="cbi-section">
+        <h3><%:Waytix VPN%></h3>
+        
+        <div class="cbi-section-node">
+            <div class="table">
+                <div class="tr">
+                    <div class="td left" width="33%"><%:Статус:%></div>
+                    <div class="td left">
+                        <span id="vpn-status"><em><%:Загрузка...%></em></span>
+                    </div>
                 </div>
+                <div class="tr">
+                    <div class="td left"><%:Текущий сервер:%></div>
+                    <div class="td left">
+                        <span id="current-server">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="cbi-page-actions" style="margin-top: 1em">
+                <button class="cbi-button cbi-button-apply" id="btn-toggle">
+                    <%:Подключиться%>
+                </button>
+                <button class="cbi-button" id="btn-update">
+                    <%:Обновить список серверов%>
+                </button>
             </div>
         </div>
     </div>
 </div>
 
 <script type="text/javascript">
-    function connectVPN() {
-        var server = document.getElementById('cbid.waytix.config.selected_server').value;
-        if (!server) {
-            alert('<%= translate("Выберите сервер для подключения") %>');
-            return;
-        }
-        
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', '<%= url("admin/services/waytix/connect") %>', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === 4) {
-                var response = JSON.parse(xhr.responseText);
-                if (response.success) {
-                    window.location.reload();
-                } else {
-                    alert('<%= translate("Ошибка подключения") %>');
+//<![CDATA[
+    'use strict';
+    
+    var isConnected = false;
+    var currentServer = '';
+    
+    function updateStatus() {
+        XHR.get('<%= url("admin/services/waytix/status") %>', null, 
+            function(xhr, status) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    isConnected = data.running;
+                    currentServer = data.server || '-';
+                    
+                    document.getElementById('vpn-status').innerHTML = isConnected ? 
+                        '<span style="color: green"><%:Подключено%></span>' : 
+                        '<span style="color: red"><%:Отключено%></span>';
+                        
+                    document.getElementById('current-server').textContent = currentServer;
+                    
+                    var btnToggle = document.getElementById('btn-toggle');
+                    if (isConnected) {
+                        btnToggle.classList.remove('cbi-button-apply');
+                        btnToggle.classList.add('cbi-button-remove');
+                        btnToggle.textContent = '<%:Отключиться%>';
+                    } else {
+                        btnToggle.classList.remove('cbi-button-remove');
+                        btnToggle.classList.add('cbi-button-apply');
+                        btnToggle.textContent = '<%:Подключиться%>';
+                    }
+                } catch (e) {
+                    console.error('Ошибка обновления статуса:', e);
                 }
             }
-        };
-        xhr.send('server=' + encodeURIComponent(server));
+        );
     }
     
-    function disconnectVPN() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', '<%= url("admin/services/waytix/disconnect") %>', true);
-        xhr.onreadystatechange = function() {
+    function toggleConnection() {
+        var btn = this;
+        btn.disabled = true;
+        
+        XHR.post('<%= url("admin/services/waytix/toggle") %>', { token: '<%=token%>' },
+            function(xhr, status) {
+                btn.disabled = false;
+                updateStatus();
+            }
+        );
+    }
+    
+    function updateServers() {
+        var btn = this;
+        btn.disabled = true;
+        
+        XHR.post('<%= url("admin/services/waytix/update") %>', { token: '<%=token%>' },
+            function(xhr, status) {
+                btn.disabled = false;
+                var data = JSON.parse(xhr.responseText);
+                if (data.success) {
+                    alert('<%:Список серверов успешно обновлен%>');
+                } else {
+                    alert('<%:Ошибка при обновлении списка серверов%>');
+                }
+            }
+        );
+    }
+    
+    // Инициализация
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('btn-toggle').addEventListener('click', toggleConnection);
+        document.getElementById('btn-update').addEventListener('click', updateServers);
+        
+        // Обновляем статус каждые 5 секунд
+        updateStatus();
+        setInterval(updateStatus, 5000);
+    });
+//]]>
+</script>
             if (xhr.readyState === 4) {
                 window.location.reload();
             }

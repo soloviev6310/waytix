@@ -1,53 +1,68 @@
 module("luci.controller.waytix", package.seeall)
 
+local http = require "luci.http"
+local sys = require "luci.sys"
+local uci = luci.model.uci.cursor()
+
 function index()
-    entry({"admin", "services", "waytix"}, cbi("waytix/waytix"), _("Шарманка 3000"), 60).dependent = true
-    entry({"admin", "services", "waytix", "status"}, call("action_status")).leaf = true
-    entry({"admin", "services", "waytix", "update"}, call("action_update")).leaf = true
-    entry({"admin", "services", "waytix", "connect"}, call("action_connect")).leaf = true
+    entry({"admin", "services", "waytix"}, 
+          template("waytix/control"), 
+          _("Шарманка 3000"), 60).dependent = true
+          
+    entry({"admin", "services", "waytix", "status"}, 
+          call("action_status"))
+          
+    entry({"admin", "services", "waytix", "toggle"}, 
+          call("action_toggle"))
+          
+    entry({"admin", "services", "waytix", "update"}, 
+          call("action_update"))
+          
+    entry({"admin", "services", "waytix", "servers"}, 
+          call("action_servers"))
 end
 
 function action_status()
-    local http = require "luci.http"
-    local sys = require "luci.sys"
-    
     local status = {
         running = sys.call("pidof xray >/dev/null") == 0,
-        server = "Не подключено"
+        server = uci:get("waytix", "config", "selected_server") or "Не подключено"
     }
     
-    if status.running then
-        local uci = require "luci.model.uci".cursor()
-        status.server = uci:get("waytix", "config", "selected_server") or "Неизвестный сервер"
-    end
-    
+    http.status(200, "OK")
     http.prepare_content("application/json")
     http.write_json(status)
 end
 
-function action_update()
-    local http = require "luci.http"
-    local sys = require "luci.sys"
+function action_toggle()
+    local is_running = sys.call("pidof xray >/dev/null") == 0
+    local result
     
-    local result = sys.call("/etc/waytix/update.sh >/tmp/waytix-update.log 2>&1 &")
+    if is_running then
+        result = sys.call("killall xray 2>/dev/null")
+    else
+        result = sys.call("/etc/init.d/waytix start >/dev/null 2>&1")
+    end
     
+    http.status(200, "OK")
     http.prepare_content("application/json")
     http.write_json({success = result == 0})
 end
 
-function action_connect()
-    local http = require "luci.http"
-    local sys = require "luci.sys"
+function action_update()
+    local result = sys.call("/etc/waytix/update.sh >/tmp/waytix-update.log 2>&1 &")
     
-    local server = http.formvalue("server")
-    if server then
-        local uci = require "luci.model.uci".cursor()
-        uci:set("waytix", "config", "selected_server", server)
-        uci:commit("waytix")
-    end
-    
-    local result = sys.call("/etc/waytix/connect.sh >/tmp/waytix-connect.log 2>&1 &")
-    
+    http.status(200, "OK")
     http.prepare_content("application/json")
     http.write_json({success = result == 0})
+end
+
+function action_servers()
+    local servers = {}
+    
+    -- Здесь можно добавить логику получения списка серверов
+    -- Например, из конфигурации или внешнего источника
+    
+    http.status(200, "OK")
+    http.prepare_content("application/json")
+    http.write_json(servers)
 end
