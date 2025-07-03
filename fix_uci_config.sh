@@ -25,62 +25,34 @@ trap cleanup EXIT
 log "Creating backup of current configuration to $BACKUP_FILE"
 cp /etc/config/waytix "$BACKUP_FILE"
 
-# Create clean config
+# Create a new config file with valid UCI format
 log "Generating new configuration..."
 cat > "$TEMP_FILE" << 'EOF'
-# Основные настройки Waytix
+package waytix
+
 config waytix 'config'
-    # Ссылка на подписку vless
     option sub_link ''
-    
-    # Выбранный сервер (ID из секции server)
     option selected_server ''
-    
-    # Автозапуск при загрузке (1 - включен, 0 - выключен)
     option auto_start '1'
-    
-    # Режим отладки (1 - включен, 0 - выключен)
     option debug '0'
 
-# Правила маршрутизации
 config routing 'rules'
-    # Перенаправлять DNS-запросы через VPN (1 - включить, 0 - выключить)
     option dns_through_vpn '1'
-    
-    # Обход локальных сетей (1 - включить, 0 - выключить)
     option bypass_private '1'
-    
-    # Обход кириллических доменов (1 - включить, 0 - выключить)
     option bypass_cyrillic '1'
 
-# Настройки Xray
 config xray 'settings'
-    # Уровень логирования (debug, info, warning, error, none)
     option loglevel 'warning'
-    
-    # Порт для API (если нужно)
     option api_port '10085'
-    
-    # Включить статистику (1 - включить, 0 - выключить)
     option enable_stats '1'
 
-# Настройки DNS
 config dns 'settings'
-    # DNS-серверы (через запятую)
-    option servers '1.1.1.1, 8.8.8.8, 1.0.0.1, 8.8.4.4'
-    
-    # Включить DNS через TCP (1 - включить, 0 - выключить)
+    option servers '1.1.1.1,8.8.8.8,1.0.0.1,8.8.4.4'
     option tcp_dns '1'
 
-# Настройки мониторинга
 config monitoring 'status'
-    # Включить мониторинг трафика (1 - включить, 0 - выключить)
     option enable_traffic '1'
-    
-    # Интервал обновления статистики (в секундах)
     option update_interval '10'
-    
-    # Сохранять историю трафика (1 - включить, 0 - выключить)
     option save_history '1'
 EOF
 
