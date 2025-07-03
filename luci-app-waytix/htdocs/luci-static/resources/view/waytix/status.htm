@@ -1,0 +1,130 @@
+<%+themes/bootstrap/header%>
+
+<div class="cbi-map">
+    <div class="cbi-section">
+        <h3><%:Статус подключения%></h3>
+        
+        <div class="cbi-section-node">
+            <div class="table">
+                <div class="tr">
+                    <div class="td left" width="33%"><%:Статус:%></div>
+                    <div class="td left">
+                        <span id="vpn-status"><em><%:Загрузка...%></em></span>
+                    </div>
+                </div>
+                <div class="tr">
+                    <div class="td left"><%:Сервер:%></div>
+                    <div class="td left">
+                        <span id="current-server">-</span>
+                    </div>
+                </div>
+                <div class="tr">
+                    <div class="td left"><%:Время работы:%></div>
+                    <div class="td left">
+                        <span id="uptime">-</span>
+                    </div>
+                </div>
+                <div class="tr">
+                    <div class="td left"><%:Передано:%></div>
+                    <div class="td left">
+                        <span id="traffic-tx">-</span>
+                    </div>
+                </div>
+                <div class="tr">
+                    <div class="td left"><%:Получено:%></div>
+                    <div class="td left">
+                        <span id="traffic-rx">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<%+themes/bootstrap/footer%>
+
+<script type="text/javascript">
+//<![CDATA[
+    'use strict';
+    
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 B';
+        
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+    
+    function formatUptime(seconds) {
+        if (!seconds) return '-';
+        
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        
+        let result = [];
+        if (days > 0) result.push(days + 'd');
+        if (hours > 0) result.push(hours + 'h');
+        if (minutes > 0) result.push(minutes + 'm');
+        if (result.length === 0 || secs > 0) result.push(secs + 's');
+        
+        return result.join(' ');
+    }
+    
+    function updateStatus() {
+        XHR.get('<%=luci.dispatcher.build_url("admin/services/waytix/status")%>', null, 
+            function(xhr, status) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    
+                    // Обновляем статус подключения
+                    var statusEl = document.getElementById('vpn-status');
+                    if (statusEl) {
+                        statusEl.innerHTML = data.running ? 
+                            '<span style="color: green"><%:Активно%></span>' : 
+                            '<span style="color: red"><%:Неактивно%></span>';
+                    }
+                    
+                    // Обновляем информацию о сервере
+                    var serverEl = document.getElementById('current-server');
+                    if (serverEl) {
+                        serverEl.textContent = data.server || '-';
+                    }
+                    
+                    // Обновляем статистику, если она есть
+                    if (data.stats) {
+                        var uptimeEl = document.getElementById('uptime');
+                        if (uptimeEl) {
+                            uptimeEl.textContent = formatUptime(data.stats.uptime);
+                        }
+                        
+                        var txEl = document.getElementById('traffic-tx');
+                        if (txEl) {
+                            txEl.textContent = formatBytes(data.stats.traffic.tx);
+                        }
+                        
+                        var rxEl = document.getElementById('traffic-rx');
+                        if (rxEl) {
+                            rxEl.textContent = formatBytes(data.stats.traffic.rx);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Ошибка обновления статуса:', e);
+                }
+            }
+        );
+    }
+    
+    // Инициализация
+    document.addEventListener('DOMContentLoaded', function() {
+        // Обновляем статус сразу и каждые 5 секунд
+        updateStatus();
+        setInterval(updateStatus, 5000);
+    });
+//]]>
+</script>

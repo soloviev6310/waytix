@@ -55,6 +55,33 @@ opkg update && opkg install wget unzip && wget -O /tmp/setup-router.sh https://r
 
 Для обновления выполните те же команды, что и при установке.
 
+## Миграция настроек
+
+При обновлении с GitHub могут быть перезаписаны настройки, внесенные вручную. Для сохранения настроек используйте скрипт миграции:
+
+### Перед обновлением:
+1. Создайте бэкап текущих настроек:
+   ```bash
+   wget -O /tmp/migrate.sh https://raw.githubusercontent.com/soloviev6310/waytix/main/migrate.sh
+   chmod +x /tmp/migrate.sh
+   /tmp/migrate.sh backup
+   ```
+
+2. Выполните обновление системы
+
+3. Восстановите настройки:
+   ```bash
+   /tmp/migrate.sh restore
+   ```
+
+### Что сохраняется в бэкап:
+- Контроллер LuCI (`/usr/lib/lua/luci/controller/waytix.lua`)
+- Шаблоны веб-интерфейса (`/www/luci-static/resources/view/waytix/`)
+- Конфигурация (`/etc/config/waytix`)
+- Установленные зависимости (lua-sec, luasocket)
+
+Бэкап сохраняется в `/tmp/waytix_backup_<timestamp>`
+
 ## Структура проекта
 
 - `luci-app-waytix/` - Исходный код LuCI-приложения

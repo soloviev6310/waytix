@@ -1,0 +1,177 @@
+<%+header%>
+
+<div class="cbi-map">
+    <div class="cbi-section">
+        <div class="cbi-section-node">
+            <div class="table" id="waytix-status">
+                <div class="tr">
+                    <div class="td left" width="33%"><%:Статус:%></div>
+                    <div class="td left" id="connection-status"><em><%:Загрузка...%></em></div>
+                </div>
+                <div class="tr">
+                    <div class="td left"><%:Трафик (↑/↓):%></div>
+                    <div class="td left" id="traffic-stats"><em>0 B / 0 B</em></div>
+                </div>
+                <div class="tr">
+                    <div class="td left"><%:Текущий сервер:%></div>
+                    <div class="td left" id="current-server"><em>-</em></div>
+                </div>
+            </div>
+
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Ссылка на подписку:%></label>
+                <div class="cbi-value-field">
+                    <input type="text" class="cbi-input-text" id="sub-link" value="" placeholder="https://..." />
+                    <button class="cbi-button cbi-button-save" id="save-sub"><%:Сохранить%></button>
+                    <button class="cbi-button cbi-button-apply" id="update-servers"><%:Обновить серверы%></button>
+                </div>
+            </div>
+
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Серверы:%></label>
+                <div class="cbi-value-field">
+                    <select class="cbi-input-select" id="server-list" style="min-width: 250px;">
+                        <option value=""><%:Загрузка...%></option>
+                    </select>
+                    <button class="cbi-button cbi-button-apply" id="connect-btn"><%:Подключить%></button>
+                </div>
+            </div>
+
+            <div class="cbi-page-actions">
+                <button class="cbi-button cbi-button-apply" id="toggle-btn"><%:Запустить%></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+'use strict';
+
+document.addEventListener('DOMContentLoaded', function() {
+    var xhr = new XMLHttpRequest();
+    
+    // Элементы интерфейса
+    var statusEl = document.getElementById('connection-status');
+    var trafficEl = document.getElementById('traffic-stats');
+    var serverEl = document.getElementById('current-server');
+    var serverList = document.getElementById('server-list');
+    var subLink = document.getElementById('sub-link');
+    var toggleBtn = document.getElementById('toggle-btn');
+    var connectBtn = document.getElementById('connect-btn');
+    var saveSubBtn = document.getElementById('save-sub');
+    var updateBtn = document.getElementById('update-servers');
+    
+    // Обновление статуса
+    function updateStatus() {
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        
+                        // Обновляем статус подключения
+                        if (data.running) {
+                            statusEl.innerHTML = '<span style="color: green"><%:Запущен%></span>';
+                            toggleBtn.textContent = '<%:Остановить%>';
+                            toggleBtn.className = 'cbi-button cbi-button-remove';
+                        } else {
+                            statusEl.innerHTML = '<span style="color: red"><%:Остановлен%></span>';
+                            toggleBtn.textContent = '<%:Запустить%>';
+                            toggleBtn.className = 'cbi-button cbi-button-apply';
+                        }
+                        
+                        // Обновляем трафик
+                        if (data.traffic && data.traffic.formatted) {
+                            trafficEl.textContent = data.traffic.formatted.up + ' / ' + data.traffic.formatted.down;
+                        }
+                        
+                        // Обновляем текущий сервер
+                        if (data.selected) {
+                            serverEl.textContent = data.selected;
+                        }
+                        
+                        // Обновляем список серверов
+                        if (data.servers && data.servers.length > 0) {
+                            serverList.innerHTML = '';
+                            data.servers.forEach(function(server) {
+                                var option = document.createElement('option');
+                                option.value = server.id;
+                                option.textContent = server.name || server.host;
+                                if (server.selected) {
+                                    option.selected = true;
+                                }
+                                serverList.appendChild(option);
+                            });
+                        }
+                        
+                    } catch (e) {
+                        console.error('Ошибка при разборе ответа:', e);
+                    }
+                }
+            }
+        };
+        
+        xhr.open('GET', '<%=url("admin/services/waytix/status")%>', true);
+        xhr.send();
+    }
+    
+    // Обработчики событий
+    toggleBtn.addEventListener('click', function() {
+        xhr.open('POST', '<%=url("admin/services/waytix/toggle")%>', true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                updateStatus();
+            }
+        };
+        xhr.send();
+    });
+    
+    connectBtn.addEventListener('click', function() {
+        var serverId = serverList.value;
+        if (!serverId) return;
+        
+        var formData = new FormData();
+        formData.append('server', serverId);
+        
+        xhr.open('POST', '<%=url("admin/services/waytix/select")%>', true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                updateStatus();
+            }
+        };
+        xhr.send(formData);
+    });
+    
+    saveSubBtn.addEventListener('click', function() {
+        var link = subLink.value.trim();
+        if (!link) return;
+        
+        var formData = new FormData();
+        formData.append('sub_link', link);
+        
+        xhr.open('POST', '<%=url("admin/services/waytix/savesub")%>', true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                updateStatus();
+            }
+        };
+        xhr.send(formData);
+    });
+    
+    updateBtn.addEventListener('click', function() {
+        xhr.open('POST', '<%=url("admin/services/waytix/update")%>', true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                updateStatus();
+            }
+        };
+        xhr.send();
+    });
+    
+    // Запускаем обновление статуса
+    updateStatus();
+    setInterval(updateStatus, 5000); // Обновляем каждые 5 секунд
+});
+</script>
+
+<%+footer%>
