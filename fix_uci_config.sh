@@ -130,9 +130,26 @@ if [ -n "$SERVER_SECTIONS" ]; then
     echo "$SERVER_SECTIONS" >> "$TEMP_FILE"
 fi
 
+# Save the generated config for debugging
+DEBUG_FILE="/tmp/waytix.debug.$$"
+cp "$TEMP_FILE" "$DEBUG_FILE"
+log "Generated config saved to $DEBUG_FILE"
+
+# Debug: Show file permissions
+log "Debug: File permissions - $(ls -la "$TEMP_FILE")"
+
+# Debug: Show first 10 lines of generated config
+log "Debug: First 10 lines of generated config:"
+head -n 10 "$TEMP_FILE" | while read -r line; do
+    log "  $line"
+done
+
 # Validate the new config
 log "Validating new configuration..."
-if uci -c /tmp validate < "$TEMP_FILE" 2>/dev/null; then
+VALIDATE_OUTPUT=$(uci -c /tmp validate 2>&1)
+VALIDATE_EXIT_CODE=$?
+
+if [ $VALIDATE_EXIT_CODE -eq 0 ]; then
     log "Configuration is valid, applying changes..."
     mv "$TEMP_FILE" /etc/config/waytix
     uci commit waytix || {
