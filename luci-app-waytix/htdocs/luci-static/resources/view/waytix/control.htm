@@ -104,22 +104,62 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // Обновляем список серверов
                         if (data.servers && data.servers.length > 0) {
+                            var currentValue = serverList.value;
+                            var selectedServerName = null;
+                            
+                            // Сохраняем текущее выбранное значение, если оно есть
+                            if (serverList.selectedIndex >= 0) {
+                                currentValue = serverList.options[serverList.selectedIndex].value;
+                            }
+                            
                             serverList.innerHTML = '';
+                            
+                            // Добавляем пустой вариант
+                            var emptyOption = document.createElement('option');
+                            emptyOption.value = '';
+                            emptyOption.textContent = '<%:Выберите сервер%>';
+                            emptyOption.disabled = true;
+                            emptyOption.selected = data.servers.length > 0 && !currentValue;
+                            serverList.appendChild(emptyOption);
+                            
+                            // Добавляем серверы
                             data.servers.forEach(function(server) {
                                 var option = document.createElement('option');
                                 option.value = server.id;
+                                
                                 // Используем имя сервера, хост или ID, что доступно
                                 var serverName = server.name || 
-                                             (server.url ? new URL(server.url).hostname : '') || 
-                                             server.id || 
-                                             'Неизвестный сервер';
+                                    (server.url ? new URL(server.url).hostname : '') || 
+                                    server.id || 
+                                    'Неизвестный сервер';
+                                    
                                 option.textContent = serverName;
+                                option.title = server.url || ''; // Добавляем полный URL в подсказку
+                                
+                                // Помечаем выбранный сервер
                                 if (server.selected) {
                                     option.selected = true;
+                                    selectedServerName = serverName;
                                     serverEl.textContent = serverName;
+                                } else if (currentValue && currentValue === server.id) {
+                                    option.selected = true;
                                 }
+                                
                                 serverList.appendChild(option);
                             });
+                            
+                            // Если есть выбранный сервер, но его нет в списке, добавляем его
+                            if (currentValue && !serverList.value && data.selected) {
+                                var option = document.createElement('option');
+                                option.value = currentValue;
+                                option.textContent = data.selected + ' (недоступен)';
+                                option.selected = true;
+                                serverList.appendChild(option);
+                                serverEl.textContent = data.selected;
+                            }
+                            
+                            // Обновляем кнопку подключения
+                            connectBtn.disabled = !serverList.value;
                         }
                         
                     } catch (e) {
