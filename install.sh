@@ -59,6 +59,7 @@ TEMP_DIR="/tmp/waytix_install"
 INSTALL_DIR="/usr/lib/lua/luci"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="/var/log/waytix_install.log"
+INIT_DIR="/etc/init.d"  # Default init scripts directory
 
 # Create log file
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -73,38 +74,137 @@ cd "$TEMP_DIR" || exit 1
 
 echo "Starting installation in $TEMP_DIR"
 
-# Function to download file from repository
+# Function to download file from repository with retries
 download_file() {
     local src="$1"
     local dst="${2:-$(basename "$src")}"
-    local dir
-    dir=$(dirname "$dst")
+    local max_retries=3
+    local retry_delay=2
+    local attempt=1
+    local success=0
     
-    if [ ! -d "$dir" ]; then
-        mkdir -p "$dir" || error "Failed to create directory: $dir"
+    # Create directory if it doesn't exist
+    local dir=$(dirname "$dst")
+    log "Creating directory: $dir"
+    if ! mkdir -p "$dir" 2>/dev/null; then
+        error "Failed to create directory: $dir"
+        return 1
+    fi
+    
+    # Check if directory is writable
+    if [ ! -w "$dir" ]; then
+        error "Directory is not writable: $dir (current user: $(whoami), permissions: $(ls -ld "$dir"))"
+        return 1
     fi
     
     log "Downloading $REPO_URL/$src to $dst"
     
-    # Try wget first, fall back to curl if wget fails
-    if command -v wget >/dev/null 2>&1; then
-        if ! wget -q "$REPO_URL/$src" -O "$dst"; then
-            warn "wget failed, trying curl..."
-            if ! curl -s -L "$REPO_URL/$src" -o "$dst"; then
-                error "Failed to download $src using both wget and curl"
+    # Remove existing file if it exists to avoid partial downloads
+    [ -f "$dst" ] && rm -f "$dst"
+    
+    # Try downloading with retries
+    while [ $attempt -le $max_retries ]; do
+        # Try curl first (more reliable with modern TLS)
+        if command -v curl >/dev/null 2>&1; then
+            log "Attempt $attempt: Using curl..."
+            if curl -v -f -L --connect-timeout 15 --max-time 30 --insecure \
+               "$REPO_URL/$src" -o "$dst.tmp" 2>>"$LOG_FILE"; then
+                # Verify the downloaded file
+                if [ -s "$dst.tmp" ]; then
+                    mv "$dst.tmp" "$dst" 2>/dev/null || {
+                        error "Failed to move temporary file for $dst"
+                        rm -f "$dst.tmp" 2>/dev/null
+                        return 1
+                    }
+                    success=1
+                    break
+                else
+                    warn "Downloaded file is empty, retrying..."
+                    rm -f "$dst.tmp" 2>/dev/null
+                fi
+            else
+                warn "Curl download failed for $src (attempt $attempt)"
+                rm -f "$dst.tmp" 2>/dev/null
             fi
+        # Fall back to wget if curl fails
+        elif command -v wget >/dev/null 2>&1; then
+            log "Attempt $attempt: Using wget..."
+            if wget --no-check-certificate --timeout=30 --tries=2 -q \
+               "$REPO_URL/$src" -O "$dst.tmp" 2>>"$LOG_FILE"; then
+                # Verify the downloaded file
+                if [ -s "$dst.tmp" ]; then
+                    mv "$dst.tmp" "$dst" 2>/dev/null || {
+                        error "Failed to move temporary file for $dst"
+                        rm -f "$dst.tmp" 2>/dev/null
+                        return 1
+                    }
+                    success=1
+                    break
+                else
+                    warn "Downloaded file is empty, retrying..."
+                    rm -f "$dst.tmp" 2>/dev/null
+                fi
+            else
+                warn "Wget download failed for $src (attempt $attempt)"
+                rm -f "$dst.tmp" 2>/dev/null
+            fi
+        else
+            error "Neither curl nor wget is available. Please install one of them and try again."
+            return 1
         fi
-    elif command -v curl >/dev/null 2>&1; then
-        if ! curl -s -L "$REPO_URL/$src" -o "$dst"; then
-            error "Failed to download $src using curl"
-        fi
-    else
-        error "Neither wget nor curl is available. Please install one of them and try again."
+        
+        warn "Download attempt $attempt failed, retrying in ${retry_delay}s..."
+        sleep $retry_delay
+        attempt=$((attempt + 1))
+    done
+    
+    # Verify the download was successful
+    if [ $success -eq 0 ]; then
+        error "Failed to download $src after $max_retries attempts"
+        return 1
     fi
     
-    # Verify file was downloaded and has content
-    if [ ! -s "$dst" ]; then
-        error "Downloaded file is empty: $dst"
+    # Verify file exists and has content
+    if [ ! -f "$dst" ]; then
+        error "Download failed: $dst does not exist after successful download"
+        return 1
+    fi
+    
+    local file_size=$(wc -c < "$dst" 2>/dev/null || echo 0)
+    if [ "$file_size" -le 0 ]; then
+        error "Downloaded file is empty: $dst (0 bytes)"
+        rm -f "$dst" 2>/dev/null
+        return 1
+    fi
+    
+    log "Successfully downloaded $src ($file_size bytes)"
+    return 0
+}
+
+# Function to verify file integrity using checksum
+verify_file() {
+    local file_path="$1"
+    local expected_checksum=""
+    
+    # Skip if file doesn't exist
+    [ ! -f "$file_path" ] && return 1
+    
+    # Generate checksum (use sha256sum if available, otherwise md5sum)
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual_checksum=$(sha256sum "$file_path" | cut -d' ' -f1)
+    elif command -v md5sum >/dev/null 2>&1; then
+        actual_checksum=$(md5sum "$file_path" | cut -d' ' -f1)
+    else
+        warn "No checksum tool available, skipping verification"
+        return 0
+    fi
+    
+    # If we have a checksum to verify against
+    if [ -n "$expected_checksum" ]; then
+        if [ "$actual_checksum" != "$expected_checksum" ]; then
+            warn "Checksum verification failed for $file_path"
+            return 1
+        fi
     fi
     
     return 0
@@ -146,22 +246,81 @@ download_dir() {
             }
         fi
         
-        # Download the file
-        download_file "$file" "$file"
+        # Download the file with retries
+        local max_retries=3
+        local retry_count=0
+        local download_success=0
+        
+        while [ $retry_count -lt $max_retries ]; do
+            # Download the file
+            if download_file "$file" "$file"; then
+                # Verify the downloaded file
+                if verify_file "$file"; then
+                    download_success=1
+                    break
+                else
+                    warn "File verification failed for $file, retrying..."
+                    rm -f "$file" 2>/dev/null
+                fi
+            fi
+            retry_count=$((retry_count + 1))
+            sleep 1
+        done
+        
+        if [ $download_success -ne 1 ]; then
+            error "Failed to download and verify $file after $max_retries attempts"
+        fi
     done
 }
 
-# Create directory structure
-mkdir -p "luci-app-waytix/luasrc/controller"
-mkdir -p "luci-app-waytix/luasrc/model/cbi/waytix"
-mkdir -p "luci-app-waytix/luasrc/view/waytix"
-mkdir -p "luci-app-waytix/root/etc/waytix"
-mkdir -p "luci-app-waytix/root/etc/init.d"
-mkdir -p "luci-app-waytix/root/usr/sbin"
-mkdir -p "luci-app-waytix/root/usr/share/rpcd/acl.d"
-mkdir -p "luci-app-waytix/root/usr/libexec/rpcd"
-mkdir -p "luci-app-waytix/root/etc/crontabs"
-mkdir -p "luci-app-waytix/root/etc/xray"
+# Create directory structure with verbose output
+create_dirs() {
+    # Используем строки вместо массива для совместимости с /bin/sh
+    local dirs="luci-app-waytix/luasrc/controller
+luci-app-waytix/luasrc/model/cbi/waytix
+luci-app-waytix/luasrc/view/waytix
+luci-app-waytix/root/etc/waytix
+luci-app-waytix/root/etc/init.d
+luci-app-waytix/root/usr/sbin
+luci-app-waytix/root/usr/share/rpcd/acl.d
+luci-app-waytix/root/usr/libexec/rpcd
+luci-app-waytix/root/etc/crontabs
+luci-app-waytix/root/etc/xray
+luci-app-waytix/luasrc
+luci-app-waytix/luasrc/controller/waytix
+luci-app-waytix/root/usr/lib/lua/luci/controller/waytix"
+    
+    log "Creating directory structure..."
+    echo "$dirs" | while IFS= read -r dir; do
+        if [ -z "$dir" ]; then
+            continue  # Пропускаем пустые строки
+        fi
+        
+        if [ ! -d "$dir" ]; then
+            log "Creating directory: $dir"
+            mkdir -p "$dir" 2>/dev/null || {
+                error "Failed to create directory: $dir"
+                return 1
+            }
+        else
+            log "Directory already exists: $dir"
+        fi
+        
+        # Проверяем права на запись
+        if [ ! -w "$dir" ]; then
+            error "Directory is not writable: $dir (permissions: $(ls -ld "$dir" 2>/dev/null || echo 'unknown'))"
+            return 1
+        fi
+    done
+    
+    return 0
+}
+
+# Вызываем функцию создания директорий
+if ! create_dirs; then
+    error "Failed to create required directories"
+    exit 1
+fi
 mkdir -p "luci-app-waytix/root/etc/config"
 
 # Download controller files
@@ -451,43 +610,79 @@ mkdir -p "${INSTALL_DIR}/controller"
 mkdir -p "${INSTALL_DIR}/model/cbi/waytix"
 mkdir -p "${INSTALL_DIR}/view/waytix"
 
+# Функция для копирования файлов с поддержкой overlay
+copy_to_overlay() {
+    local src="$1"
+    local dst="$2"
+    local overlay_dst="/overlay/upper${dst}"
+    
+    # Создаем целевую директорию в overlay
+    mkdir -p "$(dirname "$overlay_dst")"
+    
+    # Копируем файл
+    cp -v "$src" "$overlay_dst"
+    
+    # Проверяем, что файл скопировался
+    if [ -f "$overlay_dst" ]; then
+        echo "[SUCCESS] Copied to overlay: $overlay_dst"
+    else
+        echo "[WARNING] Failed to copy to overlay, trying direct copy"
+        mkdir -p "$(dirname "$dst")"
+        cp -v "$src" "$dst"
+    fi
+}
+
 # Копируем файлы контроллера
 echo "Копируем контроллер..."
-cp -v "${SCRIPT_DIR}/luci-app-waytix/luasrc/controller/waytix.lua" "${INSTALL_DIR}/controller/"
+copy_to_overlay "${TEMP_DIR}/luci-app-waytix/luasrc/controller/waytix.lua" "${INSTALL_DIR}/controller/waytix.lua"
 
 # Копируем модель
 echo "Копируем модель..."
-cp -v "${SCRIPT_DIR}/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "${INSTALL_DIR}/model/cbi/waytix/"
+copy_to_overlay "${TEMP_DIR}/luci-app-waytix/luasrc/model/cbi/waytix/waytix.lua" "${INSTALL_DIR}/model/cbi/waytix/waytix.lua"
 
 # Копируем шаблоны
 echo "Копируем шаблоны..."
-for file in "${SCRIPT_DIR}/luci-app-waytix/luasrc/view/waytix/"*.htm; do
-    cp -v "$file" "${INSTALL_DIR}/view/waytix/"
+mkdir -p "/overlay/upper${INSTALL_DIR}/view/waytix"
+for file in "${TEMP_DIR}/luci-app-waytix/luasrc/view/waytix/"*.htm; do
+    if [ -e "$file" ]; then
+        local filename=$(basename "$file")
+        copy_to_overlay "$file" "${INSTALL_DIR}/view/waytix/$filename"
+    fi
 done
 
 # Устанавливаем системные файлы
 echo "Устанавливаем системные файлы..."
-mkdir -p /etc/waytix
-for file in "${SCRIPT_DIR}/luci-app-waytix/root/etc/waytix/"*.sh; do
-    cp -v "$file" /etc/waytix/
-    chmod +x "/etc/waytix/$(basename "$file")"
+mkdir -p "/overlay/upper/etc/waytix"
+for file in "${TEMP_DIR}/luci-app-waytix/root/etc/waytix/"*.sh; do
+    if [ -e "$file" ]; then
+        local filename=$(basename "$file")
+        copy_to_overlay "$file" "/etc/waytix/$filename"
+        chmod +x "/overlay/upper/etc/waytix/$filename"
+    fi
 done
 
 # Устанавливаем конфигурацию Xray
 echo "Устанавливаем конфигурацию Xray..."
-mkdir -p /etc/xray
-cp -v "${SCRIPT_DIR}/luci-app-waytix/root/etc/xray/config.json" /etc/xray/
+mkdir -p "/overlay/upper/etc/xray"
+if [ -f "${TEMP_DIR}/luci-app-waytix/root/etc/xray/config.json" ]; then
+    copy_to_overlay "${TEMP_DIR}/luci-app-waytix/root/etc/xray/config.json" "/etc/xray/config.json"
+fi
 
 # Устанавливаем init скрипт
 echo "Устанавливаем init скрипт..."
-cp -v "${SCRIPT_DIR}/luci-app-waytix/root/etc/init.d/waytix" /etc/init.d/
-chmod +x /etc/init.d/waytix
+mkdir -p "/overlay/upper/etc/init.d"
+if [ -f "${TEMP_DIR}/luci-app-waytix/root/etc/init.d/waytix" ]; then
+    copy_to_overlay "${TEMP_DIR}/luci-app-waytix/root/etc/init.d/waytix" "/etc/init.d/waytix"
+    chmod +x "/overlay/upper/etc/init.d/waytix"
+fi
 
 # Устанавливаем демона
 echo "Устанавливаем демона..."
-mkdir -p /usr/sbin
-cp -v "${SCRIPT_DIR}/luci-app-waytix/root/usr/sbin/waytixd" /usr/sbin/
-chmod +x /usr/sbin/waytixd
+mkdir -p "/overlay/upper/usr/sbin"
+if [ -f "${TEMP_DIR}/luci-app-waytix/root/usr/sbin/waytixd" ]; then
+    copy_to_overlay "${TEMP_DIR}/luci-app-waytix/root/usr/sbin/waytixd" "/usr/sbin/waytixd"
+    chmod +x "/overlay/upper/usr/sbin/waytixd"
+fi
 
 # Устанавливаем конфигурацию
 echo "Устанавливаем конфигурацию..."
@@ -503,6 +698,49 @@ cp -v "${SCRIPT_DIR}/luci-app-waytix/root/usr/share/rpcd/acl.d/luci-app-waytix.j
 echo "Устанавливаем RPCD скрипт..."
 mkdir -p /usr/libexec/rpcd
 cp -v "${SCRIPT_DIR}/luci-app-waytix/root/usr/libexec/rpcd/waytix" /usr/libexec/rpcd/
+
+# Устанавливаем конфигурацию меню LuCI
+echo "Устанавливаем конфигурацию меню LuCI..."
+mkdir -p "/overlay/upper/usr/share/luci/menu.d"
+
+# Создаем файл меню напрямую, так как могут быть проблемы с загрузкой
+cat > "/usr/share/luci/menu.d/luci-app-waytix.json" << 'EOF'
+{
+    "admin/services/waytix": {
+        "title": "Waytix VPN",
+        "order": 70,
+        "action": {
+            "type": "view",
+            "path": "waytix/control"
+        },
+        "depends": {
+            "acl": [ "luci-app-waytix" ],
+            "fs": { "/usr/sbin/waytixd": "executable" },
+            "uci": { "waytix": true }
+        }
+    }
+}
+EOF
+
+echo "Конфигурация меню LuCI успешно создана"
+
+# Проверяем, что файл создан корректно
+if [ -f "/usr/share/luci/menu.d/luci-app-waytix.json" ]; then
+    echo "Файл меню успешно создан в /usr/share/luci/menu.d/"
+    # Устанавливаем правильные права
+    chmod 644 "/usr/share/luci/menu.d/luci-app-waytix.json"
+    echo "Права доступа к файлу меню установлены"
+    
+    # Выводим информацию о файле для отладки
+    echo "Информация о файле меню:"
+    ls -la "/usr/share/luci/menu.d/luci-app-waytix.json"
+    
+    # Выводим первые несколько строк для проверки
+    echo -e "\nСодержимое файла меню (первые 10 строк):"
+    head -n 10 "/usr/share/luci/menu.d/luci-app-waytix.json" || true
+else
+    echo "ОШИБКА: Не удалось создать файл меню в /usr/share/luci/menu.d/"
+fi
 chmod +x /usr/libexec/rpcd/waytix
 
 # Устанавливаем крон-задачу
