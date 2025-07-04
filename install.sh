@@ -30,6 +30,29 @@ check_root() {
     fi
 }
 
+# Function to clear LuCI cache
+clear_luci_cache() {
+    log "Очистка кэша LuCI..."
+    rm -rf /tmp/luci-* 2>/dev/null
+    
+    # Also clear browser cache by adding version parameter to URLs
+    LUCI_CACHE_BUSTER=$(date +%s)
+    export LUCI_CACHE_BUSTER
+    
+    log "Кэш LuCI очищен"
+}
+
+# Function to restart web interface
+restart_web_interface() {
+    log "Перезапуск веб-интерфейса..."
+    /etc/init.d/uhttpd restart 2>/dev/null || \
+    /etc/init.d/uhttpd reload 2>/dev/null || \
+    warn "Не удалось перезапустить uhttpd, попробуйте сделать это вручную"
+    
+    # Also clear LuCI cache after restart
+    clear_luci_cache
+}
+
 # Configuration
 REPO_URL="https://raw.githubusercontent.com/soloviev6310/waytix/main"
 TEMP_DIR="/tmp/waytix_install"
@@ -230,6 +253,9 @@ fix_pgrep_usage() {
         fi
     done
 }
+
+# Clear cache before installation
+clear_luci_cache
 
 # Fix known issues
 fix_uci_config
@@ -495,6 +521,9 @@ rm -rf "$TMP_DIR"
 echo ""
 echo "========================================"
 echo "Установка завершена успешно!"
+
+# Restart web interface and clear cache after installation
+restart_web_interface
 echo "Откройте веб-интерфейс LuCI и перейдите в раздел:"
 echo "Сервисы -> Шарманка 3000"
 echo "========================================"
