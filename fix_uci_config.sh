@@ -48,11 +48,11 @@ config xray 'settings'
     option api_port '10085'
     option enable_stats '1'
 
-config dns 'settings'
+config dns_settings 'dns'
     option servers '1.1.1.1,8.8.8.8,1.0.0.1,8.8.4.4'
     option tcp_dns '1'
 
-config monitoring 'status'
+config monitoring_status 'monitoring'
     option enable_traffic '1'
     option update_interval '10'
     option save_history '1'

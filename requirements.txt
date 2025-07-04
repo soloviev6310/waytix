@@ -1,0 +1,28 @@
+# Основные зависимости для работы Waytix VPN
+# Установка на OpenWrt: opkg install <имя_пакета>
+
+# Основные пакеты Lua
+lua
+lua-cjson
+luasocket
+luci-lib-nixio
+luci-lua-runtime
+
+# Зависимости для работы с сетью
+luci-lib-ip
+luci-lib-jsonc
+
+# Для работы с UCI (конфигурация OpenWrt)
+luci-compat
+
+# Для работы с веб-интерфейсом
+luci-theme-bootstrap
+
+# Для работы с JSON в Lua
+lua-cjson
+
+# Для работы с криптографией
+luasec
+
+# Для работы с сокетами
+luasocket
