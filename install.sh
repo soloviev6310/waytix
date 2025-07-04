@@ -62,7 +62,7 @@ download_file() {
     fi
     
     log "Downloading $REPO_URL/$src to $dst"
-    if ! wget --no-check-certificate -q "$REPO_URL/$src" -O "$dst"; then
+    if ! wget -q "$REPO_URL/$src" -O "$dst"; then
         error "Failed to download $src"
     fi
     
