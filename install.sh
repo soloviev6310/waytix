@@ -1,12 +1,48 @@
 #!/bin/sh
 
 set -e  # Exit on any error
-set -x  # Debug output
+set -u  # Treat unset variables as an error
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log() {
+    echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[WARN]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+    exit 1
+}
+
+# Check if running as root
+check_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        error "This script must be run as root"
+    fi
+}
 
 # Configuration
 REPO_URL="https://raw.githubusercontent.com/soloviev6310/waytix/main"
 TEMP_DIR="/tmp/waytix_install"
 INSTALL_DIR="/usr/lib/lua/luci"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_FILE="/var/log/waytix_install.log"
+
+# Create log file
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+log "Starting Waytix installation"
+log "Working directory: $(pwd)"
+log "Script directory: $SCRIPT_DIR"
 
 # Create temporary directory
 mkdir -p "$TEMP_DIR"
@@ -22,14 +58,19 @@ download_file() {
     dir=$(dirname "$dst")
     
     if [ ! -d "$dir" ]; then
-        mkdir -p "$dir"
+        mkdir -p "$dir" || error "Failed to create directory: $dir"
     fi
     
-    echo "Downloading $REPO_URL/$src to $dst"
-    if ! wget -q "$REPO_URL/$src" -O "$dst"; then
-        echo "Failed to download $src"
-        return 1
+    log "Downloading $REPO_URL/$src to $dst"
+    if ! wget --timeout=30 --tries=3 --no-check-certificate -q "$REPO_URL/$src" -O "$dst"; then
+        error "Failed to download $src"
     fi
+    
+    # Verify file was downloaded and has content
+    if [ ! -s "$dst" ]; then
+        error "Downloaded file is empty: $dst"
+    fi
+    
     return 0
 }
 
@@ -275,9 +316,19 @@ for pkg in curl jq luci-compat luci-mod-admin-full luci-lib-ipkg luci-lib-nixio;
     fi
 done
 
-# Создаем временную директорию
-TMP_DIR="/tmp/waytix-install"
-mkdir -p "$TMP_DIR"
+# Create temporary directory
+log "Creating temporary directory: $TEMP_DIR"
+mkdir -p "$TEMP_DIR" || error "Failed to create temporary directory"
+
+# Cleanup function
+cleanup() {
+    log "Cleaning up temporary files"
+    rm -rf "$TEMP_DIR"
+    log "Cleanup complete"
+}
+
+# Register cleanup on exit
+trap cleanup EXIT
 
 # Скачиваем Xray
 XRAY_VERSION="1.8.4"
@@ -310,9 +361,11 @@ install -m 755 "$TMP_DIR/xray/xray" /usr/bin/
 install -d /etc/xray
 install -m 644 "$TMP_DIR/xray/*.json" /etc/xray/ 2>/dev/null || true
 
-# Устанавливаем luci-app-waytix
-echo "Устанавливаем luci-app-waytix..."
-INSTALL_DIR="/usr/lib/lua/luci"
+# Install luci-app-waytix
+log "Installing luci-app-waytix..."
+
+# Ensure INSTALL_DIR exists
+mkdir -p "$INSTALL_DIR" || error "Failed to create installation directory"
 
 # Выводим отладочную информацию
 echo "Working directory: $(pwd)"
@@ -414,5 +467,19 @@ echo "Откройте веб-интерфейс LuCI и перейдите в �
 echo "Сервисы -> Шарманка 3000"
 echo "========================================"
 echo ""
+
+log "Installation completed successfully"
+log "Please open LuCI web interface and navigate to: Services -> Waytix VPN"
+log "Installation log saved to: $LOG_FILE"
+
+echo -e "\n${GREEN}========================================"
+echo "Waytix VPN has been installed successfully!"
+echo "Please refresh your browser to see the changes in LuCI."
+echo ""
+echo "If you encounter any issues, please check the logs:"
+echo "- Installation log: $LOG_FILE"
+echo "- Service logs: /var/log/waytix.log"
+echo "- Service status: /etc/init.d/waytix status"
+echo "========================================${NC}\n"
 
 exit 0
