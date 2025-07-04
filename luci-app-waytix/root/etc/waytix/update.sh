@@ -27,17 +27,32 @@ while IFS= read -r line; do
         PORT=$(echo "$DATA" | cut -d':' -f2 | cut -d'?' -f1)
         ID=$(echo "$line" | cut -d'@' -f1 | cut -d':' -f4)
         
-        # Извлекаем имя сервера из URL (последний сегмент пути)
-        NAME=$(echo "$line" | grep -o '#.*$' | cut -d'#' -f2-)
+        # Извлекаем имя сервера из комментария (часть после #)
+        NAME=$(echo "$line" | grep -o '#.*$' | cut -d'#' -f2- | tr -d '\r')
         
-        # Если имя не указано в хеше, берем последний сегмент URL
+        # Если имя не указано в комментарии, используем sni или host
         if [ -z "$NAME" ]; then
-            # Пытаемся извлечь последний сегмент пути из URL
-            NAME=$(echo "$line" | grep -o 'https\?:\/\/[^\/]\+\/[^\/]\+\/[^\/]\+\/\([^\/]\+\)' | sed -n 's/.*\/\([^\/]\+\)$/\1/p')
+            # Пробуем извлечь имя из параметров URL
+            SNI=$(echo "$line" | grep -o 'sni=[^&]*' | cut -d'=' -f2)
+            HOST=$(echo "$line" | grep -o 'host=[^&]*' | cut -d'=' -f2)
             
-            # Если не удалось извлечь из URL, используем общее имя
-            [ -z "$NAME" ] && NAME="Сервер $((SERVER_COUNT + 1))"
+            if [ -n "$SNI" ]; then
+                NAME="$SNI"
+            elif [ -n "$HOST" ]; then
+                NAME="$HOST"
+            else
+                NAME="$SERVER"
+            fi
         fi
+        
+        # Декодируем URL-кодированные символы в имени
+        NAME=$(printf '%b' "${NAME//%/\\x}" 2>/dev/null || echo "$NAME")
+        
+        # Удаляем лишние пробелы и переносы строк
+        NAME=$(echo "$NAME" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        # Если имя пустое, используем общее имя
+        [ -z "$NAME" ] && NAME="Сервер $((SERVER_COUNT + 1))"
         
         # Добавляем сервер в конфиг
         uci add waytix server
@@ -46,6 +61,9 @@ while IFS= read -r line; do
         uci set "waytix.@server[-1].port=$PORT"
         uci set "waytix.@server[-1].id=$ID"
         uci set "waytix.@server[-1].url=$line"
+        
+        # Выводим отладочную информацию
+        echo "Добавлен сервер: $NAME ($SERVER:$PORT)"
         
         SERVER_COUNT=$((SERVER_COUNT + 1))
     fi
