@@ -28,12 +28,12 @@
             </div>
 
             <div class="cbi-value">
-                <label class="cbi-value-title"><%:Серверы:%></label>
+                <label class="cbi-value-title"><%:Выбор сервера:%></label>
                 <div class="cbi-value-field">
                     <select class="cbi-input-select" id="server-list" style="min-width: 250px;">
                         <option value=""><%:Загрузка...%></option>
                     </select>
-                    <button class="cbi-button cbi-button-apply" id="connect-btn"><%:Подключить%></button>
+                    <button class="cbi-button cbi-button-apply" id="connect-btn"><%:Выбрать%></button>
                 </div>
             </div>
 
@@ -61,6 +61,14 @@ document.addEventListener('DOMContentLoaded', function() {
     var saveSubBtn = document.getElementById('save-sub');
     var updateBtn = document.getElementById('update-servers');
     
+    // Восстановление сохраненного ключа
+    if (localStorage) {
+        var lastKey = localStorage.getItem('waytix_last_key');
+        if (lastKey) {
+            subLink.value = lastKey;
+        }
+    }
+    
     // Обновление статуса
     function updateStatus() {
         xhr.onreadystatechange = function() {
@@ -69,13 +77,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     try {
                         var data = JSON.parse(xhr.responseText);
                         
-                        // Обновляем статус подключения
-                        if (data.running) {
-                            statusEl.innerHTML = '<span style="color: green"><%:Запущен%></span>';
+                        // Обновляем статус
+                        if (data.error) {
+                            statusEl.innerHTML = '<span style="color: orange">' + data.error + '</span>';
+                            toggleBtn.textContent = '<%:Запустить%>';
+                            toggleBtn.className = 'cbi-button cbi-button-apply';
+                        } else if (data.running) {
+                            statusEl.innerHTML = '<span style="color: green"><%:Активно%></span>';
                             toggleBtn.textContent = '<%:Остановить%>';
                             toggleBtn.className = 'cbi-button cbi-button-remove';
                         } else {
-                            statusEl.innerHTML = '<span style="color: red"><%:Остановлен%></span>';
+                            statusEl.innerHTML = '<span style="color: red"><%:Отключено%></span>';
                             toggleBtn.textContent = '<%:Запустить%>';
                             toggleBtn.className = 'cbi-button cbi-button-apply';
                         }
@@ -96,9 +108,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             data.servers.forEach(function(server) {
                                 var option = document.createElement('option');
                                 option.value = server.id;
-                                option.textContent = server.name || server.host;
+                                // Используем имя сервера, хост или ID, что доступно
+                                var serverName = server.name || 
+                                             (server.url ? new URL(server.url).hostname : '') || 
+                                             server.id || 
+                                             'Неизвестный сервер';
+                                option.textContent = serverName;
                                 if (server.selected) {
                                     option.selected = true;
+                                    serverEl.textContent = serverName;
                                 }
                                 serverList.appendChild(option);
                             });
@@ -146,13 +164,22 @@ document.addEventListener('DOMContentLoaded', function() {
         var link = subLink.value.trim();
         if (!link) return;
         
+        // Сохраняем ключ в localStorage
+        if (localStorage) {
+            localStorage.setItem('waytix_last_key', link);
+        }
+        
         var formData = new FormData();
         formData.append('sub_link', link);
         
         xhr.open('POST', '<%=url("admin/services/waytix/savesub")%>', true);
         xhr.onreadystatechange = function() {
-            if (xhr.readyState === 4 && xhr.status === 200) {
-                updateStatus();
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    updateStatus();
+                } else {
+                    console.error('Ошибка сохранения подписки');
+                }
             }
         };
         xhr.send(formData);
