@@ -118,21 +118,21 @@ download_dir() {
     if [ ${#entries[@]} -eq 0 ]; then
         # Fallback: hardcode the expected files/directories
         warn "Could not parse directory listing, using fallback list"
-        entries=(
-            "luasrc/controller/waytix.lua"
-            "luasrc/model/cbi/waytix/waytix.lua"
-            "luasrc/view/waytix/control.htm"
-            "luasrc/view/waytix/status.htm"
-            "root/etc/waytix/connect.sh"
-            "root/etc/waytix/status.sh"
-            "root/etc/waytix/update.sh"
-            "root/etc/init.d/waytix"
-            "root/usr/sbin/waytixd"
-            "root/etc/config/waytix"
-            "root/usr/share/rpcd/acl.d/luci-app-waytix.json"
-            "root/usr/libexec/rpcd/waytix"
-            "root/etc/crontabs/root"
-        )
+        # Use a more compatible way to set the array
+        set -- "luasrc/controller/waytix.lua"
+        set -- "$@" "luasrc/model/cbi/waytix/waytix.lua"
+        set -- "$@" "luasrc/view/waytix/control.htm"
+        set -- "$@" "luasrc/view/waytix/status.htm"
+        set -- "$@" "root/etc/waytix/connect.sh"
+        set -- "$@" "root/etc/waytix/status.sh"
+        set -- "$@" "root/etc/waytix/update.sh"
+        set -- "$@" "root/etc/init.d/waytix"
+        set -- "$@" "root/usr/sbin/waytixd"
+        set -- "$@" "root/etc/config/waytix"
+        set -- "$@" "root/usr/share/rpcd/acl.d/luci-app-waytix.json"
+        set -- "$@" "root/usr/libexec/rpcd/waytix"
+        set -- "$@" "root/etc/crontabs/root"
+        entries=("$@")
     fi
     
     # Process each entry
