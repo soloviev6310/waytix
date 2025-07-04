@@ -331,17 +331,6 @@ function action_clearlogs()
     })
 end
 
--- Вспомогательная функция для JSON-ответов
-function json_response(data, status)
-    http.prepare_content("application/json")
-    http.write_json(data or {})
-    return status or 200
-end
-            down = "0 B"
-        }
-    }) 
-end
-
 function action_test_connection() 
     return json_response({}) 
 end
