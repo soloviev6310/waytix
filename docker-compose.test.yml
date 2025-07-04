@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      - LUCI_TESTING=1
+    command: ["./test_gui.sh"]
+    stdin_open: true
+    tty: true
+    privileged: true  # Required for iptables in the container

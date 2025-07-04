@@ -13,8 +13,9 @@ if ! wget -qO- "$SUBSCRIPTION_URL" | base64 -d > "$TEMP_FILE" 2>/dev/null; then
 fi
 
 # Очищаем старые серверы
-uci delete waytix.servers 2>/dev/null
-uci add waytix servers
+for section in $(uci show waytix | grep -o "waytix.@server\[[0-9]\+\]"); do
+    uci delete "$section"
+done
 
 # Парсим vless-ссылки
 SERVER_COUNT=0
@@ -31,15 +32,12 @@ while IFS= read -r line; do
         [ -z "$NAME" ] && NAME="Сервер $((SERVER_COUNT + 1))"
         
         # Добавляем сервер в конфиг
-        SERVER_ID="server_$(printf "%03d" $SERVER_COUNT)"
-        uci set "waytix.$SERVER_ID=server"
-        uci set "waytix.$SERVER_ID.name=$NAME"
-        uci set "waytix.$SERVER_ID.host=$SERVER"
-        uci set "waytix.$SERVER_ID.port=$PORT"
-        uci set "waytix.$SERVER_ID.id=$ID"
-        
-        # Добавляем сервер в список
-        uci add_list waytix.servers.servers="$SERVER_ID"
+        uci add waytix server
+        uci set "waytix.@server[-1].name=$NAME"
+        uci set "waytix.@server[-1].host=$SERVER"
+        uci set "waytix.@server[-1].port=$PORT"
+        uci set "waytix.@server[-1].id=$ID"
+        uci set "waytix.@server[-1].url=$line"
         
         SERVER_COUNT=$((SERVER_COUNT + 1))
     fi

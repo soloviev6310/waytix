@@ -32,22 +32,45 @@ local function exec(command)
 end
 
 local function is_running()
-    return nixio.fs.access("/var/run/xray.pid")
+    -- Check if PID file exists and process is running
+    local pid_file = "/var/run/xray.pid"
+    if not nixio.fs.access(pid_file) then
+        return false
+    end
+    
+    -- Read PID from file
+    local pid_fd = nixio.open(pid_file, "r")
+    if not pid_fd then
+        return false
+    end
+    
+    local pid = pid_fd:read("*a"):match("(%d+)")
+    pid_fd:close()
+    
+    if not pid then
+        return false
+    end
+    
+    -- Check if process exists
+    return nixio.fs.access("/proc/" .. pid)
 end
 
 local function get_servers()
     local servers = {}
+    local selected_server = uci:get(UCI_CONFIG, "config", "selected_server")
+    
     uci:foreach(UCI_CONFIG, "server", function(s)
-        if s[".name"] and s.url then
+        if s[".name"] and s.host and s.port then
             table.insert(servers, {
                 id = s[".name"],
                 name = s.name or s.host or s[".name"],
-                host = s.host or "",
+                host = s.host,
                 port = tonumber(s.port) or 0,
-                selected = (s[".name"] == uci:get(UCI_CONFIG, "config", "selected_server"))
+                selected = (s[".name"] == selected_server)
             })
         end
     end)
+    
     return servers
 end
 
@@ -60,28 +83,105 @@ local function get_traffic()
         return bytes
     end
     
-    local function format_bytes(bytes)
-        if not bytes or bytes == 0 then return "0 B" end
-        local units = {"B", "KB", "MB", "GB", "TB"}
-        local i = 1
-        while bytes > 1024 and i < #units do
-            bytes = bytes / 1024
-            i = i + 1
+    -- Get process uptime in seconds
+    local function get_uptime()
+        if not is_running() then
+            return 0
         end
-        return string.format("%.2f %s", bytes, units[i])
+        
+        local pid_file = "/var/run/xray.pid"
+        local pid_fd = nixio.open(pid_file, "r")
+        if not pid_fd then
+            return 0
+        end
+        
+        local pid = pid_fd:read("*a"):match("(%d+)")
+        pid_fd:close()
+        
+        if not pid then
+            return 0
+        end
+        
+        -- Read process start time from /proc/pid/stat
+        local stat_fd = io.open("/proc/" .. pid .. "/stat", "r")
+        if not stat_fd then
+            return 0
+        end
+        
+        local stat_data = stat_fd:read("*a")
+        stat_fd:close()
+        
+        -- 22nd field is starttime
+        local starttime = tonumber(stat_data:match("%d+%s+%S+%s+%S+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+%d+%s+(%d+)"))
+        if not starttime then
+            return 0
+        end
+        
+        -- Get system uptime
+        local uptime_fd = io.open("/proc/uptime", "r")
+        if not uptime_fd then
+            return 0
+        end
+        
+        local uptime = tonumber(uptime_fd:read("*a"):match("([%d.]+)"))
+        uptime_fd:close()
+        
+        if not uptime then
+            return 0
+        end
+        
+        -- Calculate process uptime
+        local hertz = 100  -- usually 100 on most systems
+        local clk_tck = nixio.sysconf(nixio.CLK_TCK) or hertz
+        local process_uptime = uptime - (starttime / clk_tck)
+        
+        return math.floor(process_uptime)
     end
     
     local up = get_bytes("XRAY_OUT") or 0
     local down = get_bytes("XRAY_IN") or 0
     
     return {
-        up = up,
-        down = down,
-        formatted = {
-            up = format_bytes(up),
-            down = format_bytes(down)
-        }
+        upload = up,
+        download = down,
+        total = up + down,
+        uptime = get_uptime()
     }
+end
+
+-- Чтение логов
+local function read_logs(lines)
+    local log_file = "/var/log/xray/access.log"
+    if not nixio.fs.access(log_file) then
+        return {}
+    end
+    
+    local result = {}
+    local cmd = string.format("tail -n %d %s 2>/dev/null", tonumber(lines) or 100, log_file)
+    
+    local fd = io.popen(cmd)
+    if fd then
+        for line in fd:lines() do
+            table.insert(result, line)
+        end
+        fd:close()
+    end
+    
+    return result
+end
+
+-- Очистка логов
+local function clear_logs()
+    local log_file = "/var/log/xray/access.log"
+    if nixio.fs.access(log_file) then
+        local fd = io.open(log_file, "w")
+        if fd then
+            fd:write("")
+            fd:close()
+            return true
+        end
+    end
+    return false
 end
 
 -- Основные обработчики
@@ -97,6 +197,8 @@ function index()
     entry({"admin", "services", "waytix", "savesub"}, call("action_savesub")).leaf = true
     entry({"admin", "services", "waytix", "select"}, call("action_select")).leaf = true
     entry({"admin", "services", "waytix", "traffic"}, call("action_traffic")).leaf = true
+    entry({"admin", "services", "waytix", "logs"}, call("action_logs")).leaf = true
+    entry({"admin", "services", "waytix", "clearlogs"}, call("action_clearlogs")).leaf = true
 end
 
 function action_status()
@@ -127,12 +229,25 @@ end
 function action_toggle()
     local running = is_running()
     local cmd = running and "stop" or "start"
+    local success, result
     
-    local result = os.execute(string.format("%sconnect.sh %s", SCRIPTS_DIR, cmd))
+    if cmd == "start" and not uci:get(UCI_CONFIG, "config", "selected_server") then
+        return json_response({
+            success = false,
+            error = "No server selected",
+            running = false
+        })
+    end
+    
+    success = os.execute(string.format("%sconnect.sh %s 2>&1 >/dev/null", SCRIPTS_DIR, cmd)) == 0
+    
+    -- Add small delay to let the service start/stop
+    nixio.nanosleep(1)
     
     return json_response({
-        success = result == true or result == 0,
-        running = not running
+        success = success,
+        running = not running,
+        message = success and ("Successfully %s"):format(cmd) .. "ped" or ("Failed to %s"):format(cmd)
     })
 end
 
@@ -179,6 +294,23 @@ end
 
 function action_traffic()
     return json_response(get_traffic())
+end
+
+-- Получение логов
+function action_logs()
+    local logs = read_logs(100)  -- Последние 100 строк лога
+    http.prepare_content("text/plain")
+    http.write(table.concat(logs, "\n"))
+    return http.close()
+end
+
+-- Очистка логов
+function action_clearlogs()
+    local success = clear_logs()
+    return json_response({
+        success = success,
+        message = success and "Logs cleared successfully" or "Failed to clear logs"
+    })
 end
 
 -- Вспомогательная функция для JSON-ответов

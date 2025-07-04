@@ -1,0 +1,23 @@
+FROM alpine:3.18
+
+# Install dependencies
+RUN apk add --no-cache \
+    lua5.1 \
+    lua5.1-json \
+    lua5.1-socket \
+    lua5.1-sec \
+    git \
+    jq \
+    bash
+
+# Set up the working directory
+WORKDIR /app
+
+# Copy the project files
+COPY . .
+
+# Make the test script executable
+RUN chmod +x test_gui.sh
+
+# Set the entrypoint
+ENTRYPOINT ["/app/test_gui.sh"]
