@@ -92,21 +92,71 @@ download_dir() {
     local dir="$1"
     local base_url="$REPO_URL/$dir"
     
-    echo "Downloading directory $dir"
+    log "Downloading directory $dir"
     
-    # Download directory structure
-    for file in $(wget -qO- "$base_url" | grep -oP 'href="\K[^"]+' | grep -v '^/'); do
-        if [ "$file" != "../" ] && [ "$file" != "?" ]; then
-            if [[ "$file" == */ ]]; then
-                # It's a subdirectory
-                local subdir="${file%/}"
-                download_dir "$dir$subdir"
-            else
-                # It's a file
-                download_file "$dir$file" "$dir$file"
-            fi
+    # Create a temporary directory to store the index file
+    local temp_index="$TEMP_DIR/dir_index.html"
+    
+    # Download the directory index page using our download_file function
+    if ! download_file "$dir" "$temp_index"; then
+        warn "Failed to get directory listing for $dir"
+        return 1
+    fi
+    
+    # Extract file and directory names from the index page
+    # This is a simple approach and might need adjustment based on the actual HTML structure
+    local entries=()
+    
+    # Try to extract links from the directory index
+    # This is a simplified approach and may need adjustment
+    if command -v grep >/dev/null 2>&1; then
+        # Try to extract links from HTML (very basic, might need improvement)
+        entries=($(grep -o 'href="[^"]*"' "$temp_index" | sed 's/href="\([^"]*\)"/\1/' | grep -v '^/\|^..\?/\|^$'))
+    fi
+    
+    # If no entries found, try a simpler approach
+    if [ ${#entries[@]} -eq 0 ]; then
+        # Fallback: hardcode the expected files/directories
+        warn "Could not parse directory listing, using fallback list"
+        entries=(
+            "luasrc/controller/waytix.lua"
+            "luasrc/model/cbi/waytix/waytix.lua"
+            "luasrc/view/waytix/control.htm"
+            "luasrc/view/waytix/status.htm"
+            "root/etc/waytix/connect.sh"
+            "root/etc/waytix/status.sh"
+            "root/etc/waytix/update.sh"
+            "root/etc/init.d/waytix"
+            "root/usr/sbin/waytixd"
+            "root/etc/config/waytix"
+            "root/usr/share/rpcd/acl.d/luci-app-waytix.json"
+            "root/usr/libexec/rpcd/waytix"
+            "root/etc/crontabs/root"
+        )
+    fi
+    
+    # Process each entry
+    for entry in "${entries[@]}"; do
+        # Skip parent directory and current directory links
+        if [ "$entry" = "./" ] || [ "$entry" = "../" ] || [ -z "$entry" ]; then
+            continue
+        fi
+        
+        # Remove any leading ./ from the entry
+        entry="${entry#./}"
+        
+        # If the entry ends with /, it's a directory
+        if [[ "$entry" == */ ]]; then
+            local subdir="${entry%/}"
+            download_dir "$dir$subdir"
+        else
+            # It's a file, download it
+            download_file "$dir$entry" "$dir$entry"
         fi
     done
+    
+    # Clean up the temporary index file
+    rm -f "$temp_index" 2>/dev/null || true
 }
 
 # Create directory structure
