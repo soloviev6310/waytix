@@ -256,7 +256,7 @@ for file in "luasrc/controller/waytix.lua" \
     dest="${file#root}"
     
     # Handle wildcards
-    if [[ "$file" == *"*"* ]]; then
+    if [ -n "$(echo "$file" | grep '\*')" ]; then
         for f in $file; do
             filename=$(basename "$f")
             wget -q -P "$TEMP_DIR" "$REPO_URL/$f" || error "Failed to download $f"
@@ -266,7 +266,7 @@ for file in "luasrc/controller/waytix.lua" \
         wget -q -P "$TEMP_DIR" "$url" || error "Failed to download $file"
         
         # Handle directories
-        if [[ "$file" == */ ]]; then
+        if [ "${file%${file#?}}" = "/" ]; then
             mkdir -p "$INSTALL_DIR/$dest"
             cp -r "$TEMP_DIR/$(basename "$file")" "$INSTALL_DIR/$dest"
         else
