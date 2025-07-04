@@ -61,8 +61,23 @@ local function get_servers()
     
     uci:foreach(UCI_CONFIG, "server", function(s)
         if s[".name"] and s.host and s.port then
-            -- Get the server name from UCI option 'name' or use host as fallback
-            local server_name = uci:get(UCI_CONFIG, s[".name"], "name") or s.host or s[".name"]
+            -- Get the server name from UCI option 'name' or extract from URL or use host as fallback
+            local server_name = uci:get(UCI_CONFIG, s[".name"], "name")
+            
+            -- If name is not set, try to extract it from the URL (after #)
+            if not server_name and s.url then
+                local name_from_url = s.url:match("#([^#]+)$")
+                if name_from_url and #name_from_url > 0 then
+                    -- URL-decode the name
+                    server_name = name_from_url:gsub("%%(%x%x)", function(h)
+                        return string.char(tonumber(h, 16))
+                    end)
+                end
+            end
+            
+            -- If still no name, use host or section name as fallback
+            server_name = server_name or s.host or s[".name"]
+            
             table.insert(servers, {
                 id = s[".name"],
                 name = server_name,
