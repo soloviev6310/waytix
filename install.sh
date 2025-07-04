@@ -87,76 +87,45 @@ download_file() {
     return 0
 }
 
-# Function to download directory from repository
+# Function to download directory from repository (simplified for compatibility)
 download_dir() {
     local dir="$1"
-    local base_url="$REPO_URL/$dir"
-    
     log "Downloading directory $dir"
     
-    # Create a temporary directory to store the index file
-    local temp_index="$TEMP_DIR/dir_index.html"
+    # Create a list of files to download (simplified approach)
+    # This is a hardcoded list of files to download
+    local files=""
+    files="$files luasrc/controller/waytix.lua"
+    files="$files luasrc/model/cbi/waytix/waytix.lua"
+    files="$files luasrc/view/waytix/control.htm"
+    files="$files luasrc/view/waytix/status.htm"
+    files="$files root/etc/waytix/connect.sh"
+    files="$files root/etc/waytix/status.sh"
+    files="$files root/etc/waytix/update.sh"
+    files="$files root/etc/init.d/waytix"
+    files="$files root/usr/sbin/waytixd"
+    files="$files root/etc/config/waytix"
+    files="$files root/usr/share/rpcd/acl.d/luci-app-waytix.json"
+    files="$files root/usr/libexec/rpcd/waytix"
+    files="$files root/etc/crontabs/root"
     
-    # Download the directory index page using our download_file function
-    if ! download_file "$dir" "$temp_index"; then
-        warn "Failed to get directory listing for $dir"
-        return 1
-    fi
-    
-    # Extract file and directory names from the index page
-    # This is a simple approach and might need adjustment based on the actual HTML structure
-    local entries=()
-    
-    # Try to extract links from the directory index
-    # This is a simplified approach and may need adjustment
-    if command -v grep >/dev/null 2>&1; then
-        # Try to extract links from HTML (very basic, might need improvement)
-        entries=($(grep -o 'href="[^"]*"' "$temp_index" | sed 's/href="\([^"]*\)"/\1/' | grep -v '^/\|^..\?/\|^$'))
-    fi
-    
-    # If no entries found, try a simpler approach
-    if [ ${#entries[@]} -eq 0 ]; then
-        # Fallback: hardcode the expected files/directories
-        warn "Could not parse directory listing, using fallback list"
-        # Use a more compatible way to set the array
-        set -- "luasrc/controller/waytix.lua"
-        set -- "$@" "luasrc/model/cbi/waytix/waytix.lua"
-        set -- "$@" "luasrc/view/waytix/control.htm"
-        set -- "$@" "luasrc/view/waytix/status.htm"
-        set -- "$@" "root/etc/waytix/connect.sh"
-        set -- "$@" "root/etc/waytix/status.sh"
-        set -- "$@" "root/etc/waytix/update.sh"
-        set -- "$@" "root/etc/init.d/waytix"
-        set -- "$@" "root/usr/sbin/waytixd"
-        set -- "$@" "root/etc/config/waytix"
-        set -- "$@" "root/usr/share/rpcd/acl.d/luci-app-waytix.json"
-        set -- "$@" "root/usr/libexec/rpcd/waytix"
-        set -- "$@" "root/etc/crontabs/root"
-        entries=("$@")
-    fi
-    
-    # Process each entry
-    for entry in "${entries[@]}"; do
-        # Skip parent directory and current directory links
-        if [ "$entry" = "./" ] || [ "$entry" = "../" ] || [ -z "$entry" ]; then
-            continue
+    # Process each file
+    for file in $files; do
+        # Skip empty entries
+        [ -z "$file" ] && continue
+        
+        # Create directory if it doesn't exist
+        local dir_path="$(dirname "$file")"
+        if [ ! -d "$dir_path" ]; then
+            mkdir -p "$dir_path" 2>/dev/null || {
+                warn "Failed to create directory: $dir_path"
+                continue
+            }
         fi
         
-        # Remove any leading ./ from the entry
-        entry="${entry#./}"
-        
-        # If the entry ends with /, it's a directory
-        if [[ "$entry" == */ ]]; then
-            local subdir="${entry%/}"
-            download_dir "$dir$subdir"
-        else
-            # It's a file, download it
-            download_file "$dir$entry" "$dir$entry"
-        fi
+        # Download the file
+        download_file "$file" "$file"
     done
-    
-    # Clean up the temporary index file
-    rm -f "$temp_index" 2>/dev/null || true
 }
 
 # Create directory structure
