@@ -62,8 +62,21 @@ download_file() {
     fi
     
     log "Downloading $REPO_URL/$src to $dst"
-    if ! wget -q "$REPO_URL/$src" -O "$dst"; then
-        error "Failed to download $src"
+    
+    # Try wget first, fall back to curl if wget fails
+    if command -v wget >/dev/null 2>&1; then
+        if ! wget -q "$REPO_URL/$src" -O "$dst"; then
+            warn "wget failed, trying curl..."
+            if ! curl -s -L "$REPO_URL/$src" -o "$dst"; then
+                error "Failed to download $src using both wget and curl"
+            fi
+        fi
+    elif command -v curl >/dev/null 2>&1; then
+        if ! curl -s -L "$REPO_URL/$src" -o "$dst"; then
+            error "Failed to download $src using curl"
+        fi
+    else
+        error "Neither wget nor curl is available. Please install one of them and try again."
     fi
     
     # Verify file was downloaded and has content
