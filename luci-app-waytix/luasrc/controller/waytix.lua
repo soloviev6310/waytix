@@ -61,12 +61,15 @@ local function get_servers()
     
     uci:foreach(UCI_CONFIG, "server", function(s)
         if s[".name"] and s.host and s.port then
+            -- Get the server name from UCI option 'name' or use host as fallback
+            local server_name = uci:get(UCI_CONFIG, s[".name"], "name") or s.host or s[".name"]
             table.insert(servers, {
                 id = s[".name"],
-                name = s.name or s.host or s[".name"],
+                name = server_name,
                 host = s.host,
                 port = tonumber(s.port) or 0,
-                selected = (s[".name"] == selected_server)
+                selected = (s[".name"] == selected_server),
+                url = s.url or ""  -- Add URL for frontend display if needed
             })
         end
     end)
