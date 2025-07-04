@@ -54,7 +54,7 @@ restart_web_interface() {
 }
 
 # Configuration
-REPO_URL="https://raw.githubusercontent.com/soloviev6310/waytix/main"
+REPO_URL="https://raw.githubusercontent.com/soloviev6310/waytix/feature/improve-ui-ux"
 TEMP_DIR="/tmp/waytix_install"
 INSTALL_DIR="/usr/lib/lua/luci"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
